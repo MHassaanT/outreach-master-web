@@ -111,8 +111,10 @@ class WhatsAppService:
         self,
         to_phone: str,
         template_name: str = "hello_world",
-        language_code: str = "en_US",
-        body_parameters: Optional[List[str]] = None
+        language_code: str = "en",
+        body_parameters: Optional[List[str]] = None,
+        header_parameters: Optional[List[str]] = None,
+        components: Optional[List[Dict[str, Any]]] = None
     ) -> Dict[str, Any]:
         """
         Sends WhatsApp approved template message (Required for business-initiated cold outreach).
@@ -121,8 +123,8 @@ class WhatsAppService:
 
         if self.mock_mode:
             logger.info(
-                "[MOCK] Sending WhatsApp template '%s' (%s) to %s with params: %s",
-                template_name, language_code, recipient, body_parameters
+                "[MOCK] Sending WhatsApp template '%s' (%s) to %s with params: %s (header: %s)",
+                template_name, language_code, recipient, body_parameters, header_parameters
             )
             fake_msg_id = f"wamid.mock_{uuid.uuid4().hex[:16]}"
             return {
@@ -142,13 +144,22 @@ class WhatsAppService:
             "language": {"code": language_code}
         }
 
-        if body_parameters:
-            template_payload["components"] = [
-                {
+        if components is not None:
+            template_payload["components"] = components
+        else:
+            comp_list = []
+            if header_parameters:
+                comp_list.append({
+                    "type": "header",
+                    "parameters": [{"type": "text", "text": str(p)} for p in header_parameters]
+                })
+            if body_parameters:
+                comp_list.append({
                     "type": "body",
                     "parameters": [{"type": "text", "text": str(p)} for p in body_parameters]
-                }
-            ]
+                })
+            if comp_list:
+                template_payload["components"] = comp_list
 
         payload = {
             "messaging_product": "whatsapp",

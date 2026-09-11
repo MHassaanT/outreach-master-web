@@ -216,17 +216,26 @@ async def send_template_message(
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
 
-    # Handle template parameters (hello_world does not take any parameters)
+    # Handle template parameters
+    header_params = None
     if body.template_name == "hello_world":
         params = None
+        lang = body.language_code or "en_US"
+    elif body.template_name == "outreach_template_1":
+        lang = "en"
+        header_params = [lead.business_name]
+        rating_str = f"{lead.rating:.1f}" if lead.rating else "4.8"
+        params = [rating_str, lead.business_name]
     else:
+        lang = body.language_code or "en"
         params = body.parameters if body.parameters is not None else [lead.business_name]
 
     send_result = await whatsapp_service.send_template_message(
         to_phone=lead.phone_number,
         template_name=body.template_name,
-        language_code=body.language_code,
-        body_parameters=params
+        language_code=lang,
+        body_parameters=params,
+        header_parameters=header_params
     )
 
     now = datetime.now(timezone.utc)

@@ -34,7 +34,7 @@ export default function Messaging({ selectedLeadId, setSelectedLeadId }) {
 
   // Composer
   const [messageText, setMessageText] = useState('');
-  const [selectedTemplate, setSelectedTemplate] = useState('initial_outreach');
+  const [selectedTemplate, setSelectedTemplate] = useState('outreach_template_1');
   const [customTemplateMode, setCustomTemplateMode] = useState(false);
   const [customTemplateName, setCustomTemplateName] = useState('');
   const [sending, setSending] = useState(false);
@@ -135,11 +135,12 @@ export default function Messaging({ selectedLeadId, setSelectedLeadId }) {
 
     setSending(true);
     try {
+      const lang = templateToSend === 'hello_world' ? 'en_US' : 'en';
       const params = templateToSend === 'hello_world' ? [] : [activeThread.business_name];
       const res = await messagingApi.sendTemplate(
         activeThread.lead_id,
         templateToSend,
-        'en_US',
+        lang,
         params
       );
       setMessages((prev) => [...prev, res.data.message]);
@@ -537,6 +538,7 @@ export default function Messaging({ selectedLeadId, setSelectedLeadId }) {
                         }}
                         className="bg-zinc-950 border border-zinc-800 text-xs text-zinc-200 rounded px-3 py-2 flex-1 focus:outline-none"
                       >
+                        <option value="outreach_template_1">{'outreach_template_1 — "Custom Website for {{1}}"'}</option>
                         <option value="initial_outreach">{'initial_outreach — "Hello {{1}}, we discovered your business..."'}</option>
                         <option value="partnership_offer">{'partnership_offer — "Hi {{1}}, quick partnership inquiry..."'}</option>
                         <option value="hello_world">hello_world — (Sandbox test numbers only)</option>

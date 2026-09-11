@@ -1,0 +1,59 @@
+import logging
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from app.core.config import settings
+from app.core.database import engine, Base
+from app.models import User, Lead, Message, ChatMessage
+from app.api.auth import router as auth_router
+from app.api.dashboard import router as dashboard_router
+from app.api.leads import router as leads_router
+from app.api.messaging import router as messaging_router
+from app.api.agent import router as agent_router
+from app.api.whatsapp import router as whatsapp_router
+from app.api.simulator import router as simulator_router
+from app.api.settings import router as settings_router
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logger = logging.getLogger("outreach_master")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Initializing database tables...")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield
+    logger.info("Shutting down Outreach Master backend...")
+
+
+app = FastAPI(
+    title=settings.PROJECT_NAME,
+    lifespan=lifespan,
+    docs_url=f"{settings.API_V1_STR}/docs",
+    openapi_url=f"{settings.API_V1_STR}/openapi.json"
+)
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins for local dev
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Include API routers
+app.include_router(auth_router, prefix=settings.API_V1_STR)
+app.include_router(dashboard_router, prefix=settings.API_V1_STR)
+app.include_router(leads_router, prefix=settings.API_V1_STR)
+app.include_router(messaging_router, prefix=settings.API_V1_STR)
+app.include_router(agent_router, prefix=settings.API_V1_STR)
+app.include_router(whatsapp_router, prefix=settings.API_V1_STR)
+app.include_router(simulator_router, prefix=settings.API_V1_STR)
+app.include_router(settings_router, prefix=settings.API_V1_STR)
+
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok", "app": settings.PROJECT_NAME}

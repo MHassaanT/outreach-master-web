@@ -37,6 +37,8 @@ export default function Messaging({ selectedLeadId, setSelectedLeadId }) {
   const [selectedTemplate, setSelectedTemplate] = useState('outreach_template_1');
   const [customTemplateMode, setCustomTemplateMode] = useState(false);
   const [customTemplateName, setCustomTemplateName] = useState('');
+  const [templateBusinessName, setTemplateBusinessName] = useState('');
+  const [templateRating, setTemplateRating] = useState('4.8');
   const [sending, setSending] = useState(false);
 
   // Simulator
@@ -102,6 +104,13 @@ export default function Messaging({ selectedLeadId, setSelectedLeadId }) {
     }
   }, [activeThread?.lead_id]);
 
+  useEffect(() => {
+    if (activeThread) {
+      setTemplateBusinessName(activeThread.business_name || '');
+      setTemplateRating(activeThread.rating ? String(activeThread.rating) : '4.8');
+    }
+  }, [activeThread?.lead_id, activeThread?.business_name, activeThread?.rating]);
+
   const handleSelectThread = (thread) => {
     setActiveThread(thread);
     setSelectedLeadId(thread.lead_id);
@@ -136,7 +145,15 @@ export default function Messaging({ selectedLeadId, setSelectedLeadId }) {
     setSending(true);
     try {
       const lang = templateToSend === 'hello_world' ? 'en_US' : 'en';
-      const params = templateToSend === 'hello_world' ? [] : [activeThread.business_name];
+      let params;
+      if (templateToSend === 'hello_world') {
+        params = [];
+      } else if (templateToSend === 'outreach_template_1') {
+        params = [templateRating.trim() || '4.8', templateBusinessName.trim() || activeThread.business_name];
+      } else {
+        params = [templateBusinessName.trim() || activeThread.business_name];
+      }
+
       const res = await messagingApi.sendTemplate(
         activeThread.lead_id,
         templateToSend,
@@ -555,6 +572,38 @@ export default function Messaging({ selectedLeadId, setSelectedLeadId }) {
                       {sending ? 'Sending...' : 'Send Template'}
                     </button>
                   </div>
+
+                  {selectedTemplate === 'outreach_template_1' && !customTemplateMode && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2 pt-2 border-t border-zinc-800/60 text-xs">
+                      <div>
+                        <label className="text-[10px] text-zinc-400 block mb-0.5 font-medium">
+                          Business Name (Header & Body)
+                        </label>
+                        <input
+                          type="text"
+                          value={templateBusinessName}
+                          onChange={(e) => setTemplateBusinessName(e.target.value)}
+                          placeholder="e.g. Istanbul Shawarma"
+                          className="w-full bg-zinc-950 border border-zinc-800 text-zinc-200 rounded px-2.5 py-1.5 focus:outline-none focus:border-emerald-500/50"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-zinc-400 block mb-0.5 font-medium">
+                          Google Star Rating (Body)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="1"
+                          max="5"
+                          value={templateRating}
+                          onChange={(e) => setTemplateRating(e.target.value)}
+                          placeholder="e.g. 4.8"
+                          className="w-full bg-zinc-950 border border-zinc-800 text-zinc-200 rounded px-2.5 py-1.5 focus:outline-none focus:border-emerald-500/50"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (

@@ -223,9 +223,18 @@ async def send_template_message(
         lang = body.language_code or "en_US"
     elif body.template_name == "outreach_template_1":
         lang = "en"
-        header_params = [lead.business_name]
-        rating_str = f"{lead.rating:.1f}" if lead.rating else "4.8"
-        params = [rating_str, lead.business_name]
+        if body.parameters and len(body.parameters) >= 2:
+            rating_val = str(body.parameters[0])
+            bname = str(body.parameters[1])
+        elif body.parameters and len(body.parameters) == 1:
+            rating_val = f"{lead.rating:.1f}" if lead.rating else "4.8"
+            bname = str(body.parameters[0])
+        else:
+            rating_val = f"{lead.rating:.1f}" if lead.rating else "4.8"
+            bname = lead.business_name
+
+        header_params = [bname]
+        params = [rating_val, bname]
     else:
         lang = body.language_code or "en"
         params = body.parameters if body.parameters is not None else [lead.business_name]

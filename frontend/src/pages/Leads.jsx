@@ -23,6 +23,7 @@ export default function Leads({ setActiveTab, setSelectedLeadId }) {
     business_name: '',
     phone_number: '',
     address: '',
+    rating: '',
     notes: '',
   });
 
@@ -74,9 +75,13 @@ export default function Leads({ setActiveTab, setSelectedLeadId }) {
   const handleCreateLead = async (e) => {
     e.preventDefault();
     try {
-      await leadsApi.create(newLead);
+      const payload = {
+        ...newLead,
+        rating: newLead.rating ? parseFloat(newLead.rating) : null,
+      };
+      await leadsApi.create(payload);
       setShowAddModal(false);
-      setNewLead({ business_name: '', phone_number: '', address: '', notes: '' });
+      setNewLead({ business_name: '', phone_number: '', address: '', rating: '', notes: '' });
       fetchLeads();
     } catch (err) {
       alert(err.response?.data?.detail || 'Failed to create lead');
@@ -274,6 +279,20 @@ export default function Leads({ setActiveTab, setSelectedLeadId }) {
                   value={newLead.phone_number}
                   onChange={(e) => setNewLead({ ...newLead, phone_number: e.target.value })}
                   placeholder="e.g. +44 7712 345678"
+                  className="w-full px-3 py-2 rounded-lg bg-zinc-950 border border-zinc-800 text-xs text-zinc-200 focus:outline-none focus:border-zinc-700"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-zinc-400 mb-1">Google Star Rating (e.g. 4.8)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="1"
+                  max="5"
+                  value={newLead.rating}
+                  onChange={(e) => setNewLead({ ...newLead, rating: e.target.value })}
+                  placeholder="e.g. 4.8"
                   className="w-full px-3 py-2 rounded-lg bg-zinc-950 border border-zinc-800 text-xs text-zinc-200 focus:outline-none focus:border-zinc-700"
                 />
               </div>

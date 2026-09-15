@@ -166,7 +166,7 @@ export default function Messaging({ selectedLeadId, setSelectedLeadId }) {
     try {
       const lang = templateToSend === 'hello_world' ? 'en_US' : 'en';
       let params;
-      if (templateToSend === 'hello_world') {
+      if (templateToSend === 'hello_world' || templateToSend === 'outreach_follow_up_1') {
         params = [];
       } else if (templateToSend === 'outreach_template_1') {
         params = [templateRating.trim() || '4.8', templateBusinessName.trim() || activeThread.business_name];
@@ -586,6 +586,7 @@ export default function Messaging({ selectedLeadId, setSelectedLeadId }) {
                         className="bg-zinc-950 border border-zinc-800 text-xs text-zinc-200 rounded px-3 py-2 flex-1 focus:outline-none"
                       >
                         <option value="outreach_template_1">{'outreach_template_1 — "Custom Website for {{1}}"'}</option>
+                        <option value="outreach_follow_up_1">{'outreach_follow_up_1 — "Just bumping this up..."'}</option>
                         <option value="initial_outreach">{'initial_outreach — "Hello {{1}}, we discovered your business..."'}</option>
                         <option value="partnership_offer">{'partnership_offer — "Hi {{1}}, quick partnership inquiry..."'}</option>
                         <option value="hello_world">hello_world — (Sandbox test numbers only)</option>

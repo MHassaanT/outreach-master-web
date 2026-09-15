@@ -248,6 +248,10 @@ async def send_template_message(
 
         header_params = [bname]
         params = [rating_val, bname]
+    elif body.template_name == "outreach_follow_up_1":
+        lang = "en"
+        params = None
+        header_params = None
     else:
         lang = body.language_code or "en"
         params = body.parameters if body.parameters is not None else [lead.business_name]

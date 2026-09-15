@@ -19,7 +19,8 @@ import {
   MapPin,
   Star,
   Smartphone,
-  QrCode
+  QrCode,
+  RefreshCw
 } from 'lucide-react';
 
 export default function Messaging({ selectedLeadId, setSelectedLeadId }) {
@@ -31,6 +32,7 @@ export default function Messaging({ selectedLeadId, setSelectedLeadId }) {
   const [filterStatus, setFilterStatus] = useState('all');
   const [search, setSearch] = useState('');
   const [showEmbeddedModal, setShowEmbeddedModal] = useState(false);
+  const [syncingThreads, setSyncingThreads] = useState(false);
 
   // Composer
   const [messageText, setMessageText] = useState('');
@@ -75,6 +77,24 @@ export default function Messaging({ selectedLeadId, setSelectedLeadId }) {
       console.error('Failed to load threads:', err);
     } finally {
       setLoadingThreads(false);
+    }
+  };
+
+  const handleSyncThreads = async () => {
+    try {
+      setSyncingThreads(true);
+      const res = await messagingApi.syncThreads();
+      await fetchThreads();
+      if (activeThread) {
+        await fetchThreadMessages(activeThread.lead_id);
+      }
+      if (res.data?.merged_duplicates_count > 0) {
+        alert(`Successfully synchronized threads! Consolidated ${res.data.merged_duplicates_count} split thread(s).`);
+      }
+    } catch (err) {
+      console.error('Failed to sync threads:', err);
+    } finally {
+      setSyncingThreads(false);
     }
   };
 
@@ -226,9 +246,19 @@ export default function Messaging({ selectedLeadId, setSelectedLeadId }) {
         {/* Header & Search */}
         <div className="p-3 border-b border-zinc-800 space-y-2">
           <div className="flex items-center justify-between">
-            <h2 className="text-xs font-semibold text-zinc-200 uppercase tracking-wider">
-              WhatsApp Threads ({threads.length})
-            </h2>
+            <div className="flex items-center gap-1.5">
+              <h2 className="text-xs font-semibold text-zinc-200 uppercase tracking-wider">
+                WhatsApp Threads ({threads.length})
+              </h2>
+              <button
+                onClick={handleSyncThreads}
+                disabled={syncingThreads}
+                title="Consolidate & sync split threads"
+                className="p-1 rounded text-zinc-400 hover:text-emerald-400 hover:bg-zinc-800 transition-colors"
+              >
+                <RefreshCw className={`w-3 h-3 ${syncingThreads ? 'animate-spin text-emerald-400' : ''}`} />
+              </button>
+            </div>
             <select
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}

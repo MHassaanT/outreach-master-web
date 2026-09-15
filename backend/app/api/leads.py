@@ -8,6 +8,8 @@ from app.core.database import get_db
 from app.models.lead import Lead, LeadStatus
 from app.api.deps import get_current_user
 from app.models.user import User
+from app.services.phone_filter import normalize_phone
+from app.services.lead_service import find_lead_by_phone, sanitize_and_merge_existing_leads
 
 router = APIRouter(prefix="/leads", tags=["Leads"])
 
@@ -100,17 +102,29 @@ async def create_lead(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    clean_e164, formatted = normalize_phone(data.phone_number)
+    effective_phone = clean_e164 or data.phone_number.strip()
+    effective_formatted = data.formatted_phone or formatted or effective_phone
+
     # Check if place_id already exists
     if data.google_place_id:
         existing = await db.execute(select(Lead).where(Lead.google_place_id == data.google_place_id))
         if existing.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="A lead with this Google Place ID already exists")
 
+    # Check if a lead with this phone number already exists
+    existing_phone = await find_lead_by_phone(db, effective_phone)
+    if existing_phone:
+        raise HTTPException(
+            status_code=400,
+            detail=f"A lead with this phone number already exists ('{existing_phone.business_name}')"
+        )
+
     lead = Lead(
         business_name=data.business_name,
         contact_name=data.contact_name,
-        phone_number=data.phone_number,
-        formatted_phone=data.formatted_phone or data.phone_number,
+        phone_number=effective_phone,
+        formatted_phone=effective_formatted,
         phone_type=data.phone_type or "mobile",
         address=data.address,
         rating=data.rating,
@@ -134,25 +148,37 @@ async def bulk_import_leads(
 ):
     imported_count = 0
     skipped_count = 0
+    seen_in_batch = set()
 
     for item in leads_data:
-        # Check duplicate by place_id or phone
+        clean_e164, formatted = normalize_phone(item.phone_number)
+        effective_phone = clean_e164 or item.phone_number.strip()
+        effective_formatted = item.formatted_phone or formatted or effective_phone
+
+        if effective_phone in seen_in_batch:
+            skipped_count += 1
+            continue
+
+        # Check duplicate by place_id
         if item.google_place_id:
             existing = await db.execute(select(Lead).where(Lead.google_place_id == item.google_place_id))
             if existing.scalar_one_or_none():
                 skipped_count += 1
                 continue
 
-        existing_phone = await db.execute(select(Lead).where(Lead.phone_number == item.phone_number))
-        if existing_phone.scalar_one_or_none():
+        # Check duplicate by phone
+        existing_phone = await find_lead_by_phone(db, effective_phone)
+        if existing_phone:
             skipped_count += 1
             continue
+
+        seen_in_batch.add(effective_phone)
 
         lead = Lead(
             business_name=item.business_name,
             contact_name=item.contact_name,
-            phone_number=item.phone_number,
-            formatted_phone=item.formatted_phone or item.phone_number,
+            phone_number=effective_phone,
+            formatted_phone=effective_formatted,
             phone_type=item.phone_type or "mobile",
             address=item.address,
             rating=item.rating,
@@ -170,6 +196,18 @@ async def bulk_import_leads(
         "imported_count": imported_count,
         "skipped_count": skipped_count
     }
+
+
+@router.post("/merge-duplicates")
+async def merge_duplicate_leads_endpoint(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Manually triggers a database scan to normalize numbers and merge split duplicate threads.
+    """
+    stats = await sanitize_and_merge_existing_leads(db)
+    return {"success": True, **stats}
 
 
 @router.get("/{lead_id}")

@@ -10,8 +10,21 @@ from app.models.message import Message, MessageDirection, MessageStatus, Message
 from app.api.deps import get_current_user
 from app.models.user import User
 from app.services.whatsapp_api import whatsapp_service
+from app.services.lead_service import sanitize_and_merge_existing_leads
 
 router = APIRouter(prefix="/messaging", tags=["Messaging"])
+
+
+@router.post("/sync-threads")
+async def sync_threads(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Scans threads and merges any split duplicate threads resulting from whitespace/phone formatting.
+    """
+    stats = await sanitize_and_merge_existing_leads(db)
+    return {"success": True, **stats}
 
 
 class SendTextRequest(BaseModel):

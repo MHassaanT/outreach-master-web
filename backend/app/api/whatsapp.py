@@ -13,6 +13,8 @@ from app.core.database import get_db
 from app.models.lead import Lead, LeadStatus
 from app.models.message import Message, MessageDirection, MessageStatus, MessageType
 from app.services.whatsapp_api import whatsapp_service
+from app.services.lead_service import find_lead_by_phone
+from app.services.phone_filter import normalize_phone
 
 logger = logging.getLogger(__name__)
 
@@ -159,27 +161,17 @@ async def receive_webhook_payload(request: Request, db: AsyncSession = Depends(g
                     body_text = f"[{msg_type} message]"
 
                 if from_number:
-                    e164_variant = f"+{from_number}" if not from_number.startswith("+") else from_number
-                    clean_digits = from_number.lstrip("+")
-
-                    lead_res = await db.execute(
-                        select(Lead).where(
-                            or_(
-                                Lead.phone_number == e164_variant,
-                                Lead.phone_number == clean_digits,
-                                Lead.phone_number.endswith(clean_digits[-9:])
-                            )
-                        )
-                    )
-                    lead = lead_res.scalars().first()
+                    lead = await find_lead_by_phone(db, from_number)
 
                     if not lead:
                         contact_profile = value.get("contacts", [{}])[0].get("profile", {})
                         profile_name = contact_profile.get("name", f"WhatsApp User ({from_number})")
+                        clean_e164, formatted = normalize_phone(from_number)
+                        e164_fallback = f"+{from_number.lstrip('+')}"
                         lead = Lead(
                             business_name=profile_name,
-                            phone_number=e164_variant,
-                            formatted_phone=e164_variant,
+                            phone_number=clean_e164 or e164_fallback,
+                            formatted_phone=formatted or clean_e164 or e164_fallback,
                             phone_type="mobile",
                             status=LeadStatus.ONGOING,
                             notes="Auto-created from incoming WhatsApp message"
@@ -218,19 +210,7 @@ async def receive_webhook_payload(request: Request, db: AsyncSession = Depends(g
                     echo_body = f"[{echo_type} message from mobile app]"
 
                 if to_number:
-                    e164_to = f"+{to_number}" if not to_number.startswith("+") else to_number
-                    clean_to = to_number.lstrip("+")
-
-                    lead_res = await db.execute(
-                        select(Lead).where(
-                            or_(
-                                Lead.phone_number == e164_to,
-                                Lead.phone_number == clean_to,
-                                Lead.phone_number.endswith(clean_to[-9:])
-                            )
-                        )
-                    )
-                    lead = lead_res.scalars().first()
+                    lead = await find_lead_by_phone(db, to_number)
                     if lead:
                         outbound_echo = Message(
                             lead_id=lead.id,

@@ -23,6 +23,16 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing database tables...")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    # Self-healing migration: sanitize phone numbers and merge split threads
+    try:
+        from app.core.database import AsyncSessionLocal
+        from app.services.lead_service import sanitize_and_merge_existing_leads
+        async with AsyncSessionLocal() as session:
+            await sanitize_and_merge_existing_leads(session)
+    except Exception as e:
+        logger.warning("Startup lead sanitization/deduplication warning: %s", e)
+
     yield
     logger.info("Shutting down Outreach Master backend...")
 

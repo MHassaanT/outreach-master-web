@@ -64,6 +64,7 @@ export const messagingApi = {
       language_code: languageCode || 'en_US',
       parameters: parameters || [],
     }),
+  syncThreads: () => api.post('/messaging/sync-threads'),
 };
 
 export const agentApi = {

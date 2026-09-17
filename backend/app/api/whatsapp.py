@@ -157,8 +157,12 @@ async def receive_webhook_payload(request: Request, db: AsyncSession = Depends(g
                         or interactive.get("list_reply", {}).get("title")
                         or "Interactive response"
                     )
+                elif msg_type in ("audio", "voice"):
+                    body_text = "Voice note"
                 else:
                     body_text = f"[{msg_type} message]"
+
+                msg_type_enum = MessageType.AUDIO if msg_type in ("audio", "voice") else MessageType.TEXT
 
                 if from_number:
                     lead = await find_lead_by_phone(db, from_number)
@@ -182,7 +186,7 @@ async def receive_webhook_payload(request: Request, db: AsyncSession = Depends(g
                     inbound_msg = Message(
                         lead_id=lead.id,
                         direction=MessageDirection.INBOUND,
-                        message_type=MessageType.TEXT,
+                        message_type=msg_type_enum,
                         content=body_text,
                         whatsapp_message_id=msg_id,
                         status=MessageStatus.DELIVERED,
@@ -204,8 +208,11 @@ async def receive_webhook_payload(request: Request, db: AsyncSession = Depends(g
                 echo_type = echo.get("type")
                 echo_body = ""
 
+                echo_msg_type = MessageType.AUDIO if echo_type in ("audio", "voice") else MessageType.TEXT
                 if echo_type == "text":
                     echo_body = echo.get("text", {}).get("body", "")
+                elif echo_type in ("audio", "voice"):
+                    echo_body = "Voice note"
                 else:
                     echo_body = f"[{echo_type} message from mobile app]"
 
@@ -215,7 +222,7 @@ async def receive_webhook_payload(request: Request, db: AsyncSession = Depends(g
                         outbound_echo = Message(
                             lead_id=lead.id,
                             direction=MessageDirection.OUTBOUND,
-                            message_type=MessageType.TEXT,
+                            message_type=echo_msg_type,
                             content=echo_body,
                             whatsapp_message_id=echo_id,
                             status=MessageStatus.DELIVERED,

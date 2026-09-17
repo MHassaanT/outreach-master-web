@@ -54,10 +54,28 @@ export const leadsApi = {
   delete: (id) => api.delete(`/leads/${id}`),
 };
 
+export const getMediaUrl = (url) => {
+  if (!url) return '';
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) {
+    return url;
+  }
+  const base = (api.defaults.baseURL || '').replace(/\/api\/?$/, '');
+  return `${base}${url.startsWith('/') ? '' : '/'}${url}`;
+};
+
 export const messagingApi = {
   getThreads: (params) => api.get('/messaging/threads', { params }),
   getThreadMessages: (leadId) => api.get(`/messaging/threads/${leadId}/messages`),
   sendText: (leadId, content) => api.post(`/messaging/threads/${leadId}/send-text`, { content }),
+  sendAudio: (leadId, audioBlob, duration) => {
+    const formData = new FormData();
+    const ext = audioBlob.type.includes('mp4') ? 'm4a' : audioBlob.type.includes('ogg') ? 'ogg' : 'webm';
+    formData.append('audio_file', audioBlob, `voice_note.${ext}`);
+    if (duration) formData.append('duration', duration);
+    return api.post(`/messaging/threads/${leadId}/send-audio`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
   sendTemplate: (leadId, templateName, languageCode, parameters) =>
     api.post(`/messaging/threads/${leadId}/send-template`, {
       template_name: templateName,
@@ -74,6 +92,8 @@ export const agentApi = {
 
 export const simulatorApi = {
   simulateReply: (leadId, replyText) => api.post('/simulator/reply', { lead_id: leadId, reply_text: replyText }),
+  simulateAudioReply: (leadId, duration = 4) =>
+    api.post('/simulator/reply-audio', { lead_id: leadId, duration }),
   simulateRead: (leadId) => api.post(`/simulator/mark-read/${leadId}`),
 };
 

@@ -22,6 +22,7 @@ class MessageStatus(str, enum.Enum):
 class MessageType(str, enum.Enum):
     TEXT = "text"
     TEMPLATE = "template"
+    AUDIO = "audio"
 
 
 class Message(Base):
@@ -39,6 +40,8 @@ class Message(Base):
         default=MessageType.TEXT
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    media_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    media_duration: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     template_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     whatsapp_message_id: Mapped[Optional[str]] = mapped_column(String(255), index=True, nullable=True)
     

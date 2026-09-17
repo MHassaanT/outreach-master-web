@@ -2,6 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { messagingApi, leadsApi, simulatorApi } from '../api/client';
 import StatusBadge from '../components/StatusBadge';
 import EmbeddedSignupModal from '../components/EmbeddedSignupModal';
+import LinkifiedText from '../components/LinkifiedText';
+import VoiceNotePlayer from '../components/VoiceNotePlayer';
+import VoiceRecorder from '../components/VoiceRecorder';
 import { 
   Send, 
   Phone, 
@@ -20,7 +23,8 @@ import {
   Star,
   Smartphone,
   QrCode,
-  RefreshCw
+  RefreshCw,
+  Mic
 } from 'lucide-react';
 
 export default function Messaging({ selectedLeadId, setSelectedLeadId }) {
@@ -217,6 +221,38 @@ export default function Messaging({ selectedLeadId, setSelectedLeadId }) {
       fetchThreads();
     } catch (err) {
       console.error('Simulator reply error:', err);
+    }
+  };
+
+  const handleSendAudio = async (audioBlob, duration) => {
+    if (!activeThread || sending) return;
+    setSending(true);
+    try {
+      const res = await messagingApi.sendAudio(activeThread.lead_id, audioBlob, duration);
+      setMessages((prev) => [...prev, res.data.message]);
+      fetchThreads();
+    } catch (err) {
+      console.error('Failed to send voice message:', err);
+      alert(err.response?.data?.detail || 'Failed to send voice message');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleSimulateAudioReply = async () => {
+    if (!activeThread) return;
+    try {
+      const res = await simulatorApi.simulateAudioReply(activeThread.lead_id, 4);
+      setMessages((prev) => [...prev, res.data.message]);
+      setActiveThread((prev) => ({
+        ...prev,
+        status: 'ongoing',
+        window_active: true,
+        window_seconds_left: 24 * 3600
+      }));
+      fetchThreads();
+    } catch (err) {
+      console.error('Simulator audio reply error:', err);
     }
   };
 
@@ -422,6 +458,14 @@ export default function Messaging({ selectedLeadId, setSelectedLeadId }) {
                   Receive Reply
                 </button>
                 <button
+                  onClick={handleSimulateAudioReply}
+                  className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white font-medium rounded text-xs whitespace-nowrap transition-colors flex items-center gap-1"
+                  title="Simulate receiving an incoming voice note from customer"
+                >
+                  <Mic className="w-3 h-3" />
+                  Voice Note
+                </button>
+                <button
                   onClick={handleSimulateRead}
                   className="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-xs whitespace-nowrap border border-zinc-700"
                   title="Mark latest outbound message as read"
@@ -481,7 +525,17 @@ export default function Messaging({ selectedLeadId, setSelectedLeadId }) {
                           <FileText className="w-3 h-3" /> Template: {m.template_name}
                         </div>
                       )}
-                      <p className="whitespace-pre-line">{m.content}</p>
+                      {m.message_type === 'audio' ? (
+                        <VoiceNotePlayer
+                          audioUrl={m.media_url}
+                          duration={m.media_duration}
+                          isOutbound={isOutbound}
+                        />
+                      ) : (
+                        <p className="whitespace-pre-line">
+                          <LinkifiedText text={m.content} />
+                        </p>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-1.5 mt-1 px-1 text-[10px] font-mono text-zinc-500">
@@ -638,24 +692,32 @@ export default function Messaging({ selectedLeadId, setSelectedLeadId }) {
                 </div>
               </div>
             ) : (
-              /* If 24h Window is active, show freeform text composer */
-              <form onSubmit={handleSendText} className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={messageText}
-                  onChange={(e) => setMessageText(e.target.value)}
-                  placeholder="Type a freeform WhatsApp message (24h window active)..."
-                  className="flex-1 px-4 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-zinc-700"
+              /* If 24h Window is active, show freeform text composer & voice recorder */
+              <div className="flex items-center gap-2">
+                <form onSubmit={handleSendText} className="flex items-center gap-2 flex-1">
+                  <input
+                    type="text"
+                    value={messageText}
+                    onChange={(e) => setMessageText(e.target.value)}
+                    placeholder="Type a freeform WhatsApp message (24h window active)..."
+                    className="flex-1 px-4 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-zinc-700"
+                    disabled={sending}
+                  />
+                  {messageText.trim() && (
+                    <button
+                      type="submit"
+                      disabled={!messageText.trim() || sending}
+                      className="p-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl transition-colors disabled:opacity-40 shrink-0"
+                    >
+                      <Send className="w-4 h-4" />
+                    </button>
+                  )}
+                </form>
+                <VoiceRecorder
+                  onSendAudio={handleSendAudio}
                   disabled={sending}
                 />
-                <button
-                  type="submit"
-                  disabled={!messageText.trim() || sending}
-                  className="p-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl transition-colors disabled:opacity-40"
-                >
-                  <Send className="w-4 h-4" />
-                </button>
-              </form>
+              </div>
             )}
           </div>
         </div>

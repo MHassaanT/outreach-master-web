@@ -1,3 +1,4 @@
+import os
 import uuid
 import logging
 from typing import Dict, Any, Optional, List
@@ -187,6 +188,87 @@ class WhatsAppService:
                 "status": "sent",
                 "mock": False
             }
+
+    async def send_audio_message(
+        self,
+        to_phone: str,
+        audio_url: Optional[str] = None,
+        audio_path: Optional[str] = None,
+        mime_type: str = "audio/ogg"
+    ) -> Dict[str, Any]:
+        """
+        Sends an audio/voice note message via WhatsApp Cloud API (or mocks it).
+        """
+        recipient = to_phone.replace("+", "").replace(" ", "").replace("-", "")
+
+        if self.mock_mode:
+            logger.info("[MOCK] Sending WhatsApp audio message to %s (url: %s, file: %s)", recipient, audio_url, audio_path)
+            fake_msg_id = f"wamid.mock_{uuid.uuid4().hex[:16]}"
+            return {
+                "success": True,
+                "message_id": fake_msg_id,
+                "status": "sent",
+                "mock": True
+            }
+
+        headers = {
+            "Authorization": f"Bearer {self.access_token}",
+        }
+
+        # If audio_url is an absolute HTTP URL, we can send it directly via link
+        if audio_url and (audio_url.startswith("http://") or audio_url.startswith("https://")):
+            payload = {
+                "messaging_product": "whatsapp",
+                "recipient_type": "individual",
+                "to": recipient,
+                "type": "audio",
+                "audio": {"link": audio_url}
+            }
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                res = await client.post(self.base_url, headers={**headers, "Content-Type": "application/json"}, json=payload)
+                data = res.json()
+                if res.status_code not in (200, 201):
+                    logger.error("WhatsApp API Audio Error: %d %s", res.status_code, res.text)
+                    err_msg = data.get("error", {}).get("message", res.text)
+                    return {"success": False, "error": f"WhatsApp API Error: {err_msg}", "details": data}
+                msg_id = data.get("messages", [{}])[0].get("id")
+                return {"success": True, "message_id": msg_id, "status": "sent", "mock": False}
+
+        # Otherwise upload media file if local path is provided
+        if audio_path and os.path.exists(audio_path):
+            media_upload_url = f"https://graph.facebook.com/{self.api_version}/{self.phone_number_id}/media"
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    with open(audio_path, "rb") as f:
+                        files = {"file": (os.path.basename(audio_path), f, mime_type)}
+                        data_payload = {"messaging_product": "whatsapp", "type": mime_type}
+                        up_res = await client.post(media_upload_url, headers=headers, data=data_payload, files=files)
+                        up_data = up_res.json()
+                        if up_res.status_code not in (200, 201) or "id" not in up_data:
+                            err_msg = up_data.get("error", {}).get("message", up_res.text)
+                            return {"success": False, "error": f"Media upload failed: {err_msg}", "details": up_data}
+                        media_id = up_data["id"]
+
+                    # Now dispatch message referencing uploaded media_id
+                    payload = {
+                        "messaging_product": "whatsapp",
+                        "recipient_type": "individual",
+                        "to": recipient,
+                        "type": "audio",
+                        "audio": {"id": media_id}
+                    }
+                    send_res = await client.post(self.base_url, headers={**headers, "Content-Type": "application/json"}, json=payload)
+                    send_data = send_res.json()
+                    if send_res.status_code not in (200, 201):
+                        err_msg = send_data.get("error", {}).get("message", send_res.text)
+                        return {"success": False, "error": f"WhatsApp API Error: {err_msg}", "details": send_data}
+                    msg_id = send_data.get("messages", [{}])[0].get("id")
+                    return {"success": True, "message_id": msg_id, "status": "sent", "mock": False}
+            except Exception as e:
+                logger.error("Failed to upload/send audio: %s", e)
+                return {"success": False, "error": str(e)}
+
+        return {"success": False, "error": "No valid audio URL or audio file path provided"}
 
 
 whatsapp_service = WhatsAppService()

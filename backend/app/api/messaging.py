@@ -285,6 +285,21 @@ async def send_template_message(
         lang = "en"
         params = None
         header_params = None
+    elif body.template_name == "outreach_follow_up_2":
+        lang = "en"
+        topic = "the website demo"
+        header_val = topic
+        body_val = topic
+        if body.parameters:
+            if len(body.parameters) >= 2:
+                header_val = str(body.parameters[0])
+                body_val = str(body.parameters[1])
+            elif len(body.parameters) == 1 and body.parameters[0]:
+                header_val = str(body.parameters[0])
+                body_val = str(body.parameters[0])
+
+        header_params = [header_val]
+        params = [body_val]
     else:
         lang = body.language_code or "en"
         params = body.parameters if body.parameters is not None else [lead.business_name]

@@ -45,6 +45,7 @@ export default function Messaging({ selectedLeadId, setSelectedLeadId }) {
   const [customTemplateName, setCustomTemplateName] = useState('');
   const [templateBusinessName, setTemplateBusinessName] = useState('');
   const [templateRating, setTemplateRating] = useState('4.8');
+  const [followUpTopic, setFollowUpTopic] = useState('the website demo');
   const [sending, setSending] = useState(false);
 
   // Simulator
@@ -174,6 +175,8 @@ export default function Messaging({ selectedLeadId, setSelectedLeadId }) {
         params = [];
       } else if (templateToSend === 'outreach_template_1') {
         params = [templateRating.trim() || '4.8', templateBusinessName.trim() || activeThread.business_name];
+      } else if (templateToSend === 'outreach_follow_up_2') {
+        params = [followUpTopic.trim() || 'the website demo'];
       } else {
         params = [templateBusinessName.trim() || activeThread.business_name];
       }
@@ -641,6 +644,7 @@ export default function Messaging({ selectedLeadId, setSelectedLeadId }) {
                       >
                         <option value="outreach_template_1">{'outreach_template_1 — "Custom Website for {{1}}"'}</option>
                         <option value="outreach_follow_up_1">{'outreach_follow_up_1 — "Just bumping this up..."'}</option>
+                        <option value="outreach_follow_up_2">{'outreach_follow_up_2 — "Follow Up regarding {{1}}"'}</option>
                         <option value="initial_outreach">{'initial_outreach — "Hello {{1}}, we discovered your business..."'}</option>
                         <option value="partnership_offer">{'partnership_offer — "Hi {{1}}, quick partnership inquiry..."'}</option>
                         <option value="hello_world">hello_world — (Sandbox test numbers only)</option>
@@ -687,6 +691,21 @@ export default function Messaging({ selectedLeadId, setSelectedLeadId }) {
                           className="w-full bg-zinc-950 border border-zinc-800 text-zinc-200 rounded px-2.5 py-1.5 focus:outline-none focus:border-emerald-500/50"
                         />
                       </div>
+                    </div>
+                  )}
+
+                  {selectedTemplate === 'outreach_follow_up_2' && !customTemplateMode && (
+                    <div className="mt-2 pt-2 border-t border-zinc-800/60 text-xs">
+                      <label className="text-[10px] text-zinc-400 block mb-0.5 font-medium">
+                        Topic / Context (Header & Body: "regarding {'{{1}}'}")
+                      </label>
+                      <input
+                        type="text"
+                        value={followUpTopic}
+                        onChange={(e) => setFollowUpTopic(e.target.value)}
+                        placeholder="e.g. the website demo, our website mockup"
+                        className="w-full bg-zinc-950 border border-zinc-800 text-zinc-200 rounded px-2.5 py-1.5 focus:outline-none focus:border-emerald-500/50"
+                      />
                     </div>
                   )}
                 </div>

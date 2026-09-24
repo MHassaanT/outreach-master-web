@@ -1,4 +1,6 @@
+import io
 import uuid
+import openpyxl
 from unittest.mock import patch, AsyncMock
 import pytest
 from httpx import AsyncClient, ASGITransport
@@ -88,3 +90,95 @@ async def test_agent_lead_search_and_pipeline_import():
                 assert pipeline_leads[0]["business_name"] == "York Artisan Bakery"
     finally:
         settings.GOOGLE_MAPS_API_KEY = orig_gkey
+
+
+@pytest.mark.asyncio
+async def test_csv_lead_import():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    test_email = f"importer_csv_{uuid.uuid4().hex[:8]}@example.com"
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Register user
+        reg_res = await client.post(
+            "/api/auth/register",
+            json={"name": "CSV Importer", "email": test_email, "password": "securepassword"}
+        )
+        token = reg_res.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # Create sample CSV with Name, Phone Number, Location
+        csv_data = (
+            "Name,Phone Number,Location\n"
+            "The Artisan Coffee Roast,+44 7700 900123,\"15 Regent Street, London\"\n"
+            "Harbor Seafood Grill,07700900456,\"22 Ocean Way, Bristol\"\n"
+            "The Artisan Coffee Roast,+44 7700 900123,\"Duplicate row in same file\"\n"
+        ).encode("utf-8")
+
+        files = {"file": ("leads_test.csv", csv_data, "text/csv")}
+        res = await client.post("/api/leads/import-file", files=files, headers=headers)
+        assert res.status_code == 200
+        data = res.json()
+        assert data["success"] is True
+        assert data["total_rows"] == 3
+        assert data["imported_count"] == 2
+        assert data["skipped_count"] == 1  # 1 duplicate within file
+
+        # Check imported leads in database
+        leads_res = await client.get("/api/leads", headers=headers)
+        assert leads_res.status_code == 200
+        leads = leads_res.json()
+        names = [l["business_name"] for l in leads]
+        assert "The Artisan Coffee Roast" in names
+        assert "Harbor Seafood Grill" in names
+
+        # Check location was mapped to address
+        artisan = next(l for l in leads if l["business_name"] == "The Artisan Coffee Roast")
+        assert "Regent Street" in artisan["address"]
+        assert artisan["status"] == "new"
+
+
+@pytest.mark.asyncio
+async def test_excel_lead_import():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    test_email = f"importer_xlsx_{uuid.uuid4().hex[:8]}@example.com"
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Register user
+        reg_res = await client.post(
+            "/api/auth/register",
+            json={"name": "Excel Importer", "email": test_email, "password": "securepassword"}
+        )
+        token = reg_res.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # Create an in-memory .xlsx file using openpyxl
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Leads"
+        ws.append(["Name", "Phone Number", "Location"])
+        ws.append(["Piccadilly Bakery", "+44 7700 900789", "Piccadilly Circus, London"])
+        ws.append(["Soho Burger Bar", "+44 7700 900999", "Dean Street, Soho"])
+
+        excel_buffer = io.BytesIO()
+        wb.save(excel_buffer)
+        excel_bytes = excel_buffer.getvalue()
+
+        files = {"file": ("prospects.xlsx", excel_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+        res = await client.post("/api/leads/import-file", files=files, headers=headers)
+        assert res.status_code == 200
+        data = res.json()
+        assert data["success"] is True
+        assert data["imported_count"] == 2
+        assert data["skipped_count"] == 0
+
+        # Verify second upload of the same file reports them as duplicates
+        res2 = await client.post("/api/leads/import-file", files=files, headers=headers)
+        assert res2.status_code == 200
+        data2 = res2.json()
+        assert data2["imported_count"] == 0
+        assert data2["skipped_count"] == 2
+

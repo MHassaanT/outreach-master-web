@@ -16,7 +16,11 @@ import {
   AlertCircle,
   Clock,
   ShieldCheck,
-  Sparkles
+  Sparkles,
+  Upload,
+  FileSpreadsheet,
+  FileText,
+  Download
 } from 'lucide-react';
 
 export default function Leads({ setActiveTab, setSelectedLeadId }) {
@@ -43,6 +47,13 @@ export default function Leads({ setActiveTab, setSelectedLeadId }) {
   const [bulkSending, setBulkSending] = useState(false);
   const [bulkProgress, setBulkProgress] = useState(null);
   const [bulkComplete, setBulkComplete] = useState(false);
+
+  // File Import State (CSV / Excel)
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState(null);
+  const [dragActive, setDragActive] = useState(false);
 
   const fetchLeads = async () => {
     try {
@@ -193,6 +204,53 @@ export default function Leads({ setActiveTab, setSelectedLeadId }) {
     }
   };
 
+  // File import handlers (CSV / Excel)
+  const handleFileChange = (e) => {
+    if (e.target.files && e.target.files[0]) {
+      setSelectedFile(e.target.files[0]);
+      setImportResult(null);
+    }
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      setSelectedFile(e.dataTransfer.files[0]);
+      setImportResult(null);
+    }
+  };
+
+  const handleUploadFile = async () => {
+    if (!selectedFile || importing) return;
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const res = await leadsApi.importFile(selectedFile);
+      setImportResult(res.data);
+      fetchLeads();
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Failed to import file');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleDownloadSampleCsv = () => {
+    const csvContent = "Name,Phone Number,Location\n" +
+      "Acme Artisanal Coffee,+44 7712 345678,\"12 Baker Street, London\"\n" +
+      "The Rustic Bistro,+44 7890 123456,\"45 High Street, Manchester\"\n";
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", "sample_leads.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const statusTabs = [
     { id: 'all', label: 'All Leads' },
     { id: 'new', label: 'New' },
@@ -213,6 +271,17 @@ export default function Leads({ setActiveTab, setSelectedLeadId }) {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              setSelectedFile(null);
+              setImportResult(null);
+              setShowImportModal(true);
+            }}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-xs font-medium text-zinc-200 bg-zinc-800 hover:bg-zinc-700 transition-colors border border-zinc-700/80 shadow-sm"
+          >
+            <Upload className="w-3.5 h-3.5 text-emerald-400" />
+            Import CSV / Excel
+          </button>
           <button
             onClick={() => setShowAddModal(true)}
             className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-500 transition-colors shadow-sm"
@@ -765,6 +834,193 @@ export default function Leads({ setActiveTab, setSelectedLeadId }) {
                   className="px-4 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white shadow-md transition-colors"
                 >
                   Done & Refresh Pipeline
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Import CSV / Excel Modal */}
+      {showImportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-800/80">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                  <Upload className="w-4 h-4" />
+                </div>
+                <div>
+                  <h2 className="text-base font-semibold text-zinc-100">Import Leads from Spreadsheet</h2>
+                  <p className="text-xs text-zinc-400">Upload your CSV or Excel (.xlsx) file</p>
+                </div>
+              </div>
+              {!importing && (
+                <button
+                  onClick={() => setShowImportModal(false)}
+                  className="text-zinc-500 hover:text-zinc-300 p-1 rounded-md"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            {/* Expected Fields Banner */}
+            <div className="p-3.5 rounded-xl bg-zinc-950/70 border border-zinc-800 text-xs space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-medium text-zinc-200">Required Spreadsheet Columns:</span>
+                <button
+                  type="button"
+                  onClick={handleDownloadSampleCsv}
+                  className="text-emerald-400 hover:text-emerald-300 text-[11px] flex items-center gap-1 font-medium"
+                >
+                  <Download className="w-3 h-3" />
+                  Download Sample CSV
+                </button>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-center text-[11px] font-mono">
+                <div className="p-1.5 rounded-lg bg-zinc-900 border border-zinc-700/60 text-emerald-400 font-semibold">
+                  Name
+                </div>
+                <div className="p-1.5 rounded-lg bg-zinc-900 border border-zinc-700/60 text-emerald-400 font-semibold">
+                  Phone Number
+                </div>
+                <div className="p-1.5 rounded-lg bg-zinc-900 border border-zinc-700/60 text-emerald-400 font-semibold">
+                  Location
+                </div>
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                Also optionally supports <strong>Rating</strong>, <strong>Website</strong>, and <strong>Notes</strong>. Phone numbers are automatically verified and converted to international format.
+              </p>
+            </div>
+
+            {/* Upload Box / Drag & Drop */}
+            {!importResult && (
+              <div
+                onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+                onDragLeave={() => setDragActive(false)}
+                onDrop={handleDrop}
+                className={`border-2 border-dashed rounded-xl p-6 text-center transition-all ${
+                  dragActive
+                    ? 'border-emerald-500 bg-emerald-500/5'
+                    : selectedFile
+                    ? 'border-emerald-500/50 bg-zinc-950'
+                    : 'border-zinc-800 hover:border-zinc-700 bg-zinc-950/50'
+                }`}
+              >
+                <input
+                  type="file"
+                  id="lead-file-input"
+                  accept=".csv, .xlsx, .xls, text/csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel"
+                  onChange={handleFileChange}
+                  className="hidden"
+                />
+
+                {selectedFile ? (
+                  <div className="space-y-2">
+                    <div className="w-10 h-10 rounded-full bg-emerald-500/10 text-emerald-400 flex items-center justify-center mx-auto">
+                      <FileSpreadsheet className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-semibold text-zinc-200">{selectedFile.name}</div>
+                      <div className="text-[11px] text-zinc-500 font-mono">
+                        {(selectedFile.size / 1024).toFixed(1)} KB
+                      </div>
+                    </div>
+                    {!importing && (
+                      <label
+                        htmlFor="lead-file-input"
+                        className="inline-block text-[11px] text-emerald-400 hover:text-emerald-300 cursor-pointer underline"
+                      >
+                        Choose another file
+                      </label>
+                    )}
+                  </div>
+                ) : (
+                  <label htmlFor="lead-file-input" className="cursor-pointer space-y-2 block">
+                    <div className="w-10 h-10 rounded-full bg-zinc-900 border border-zinc-800 text-zinc-400 flex items-center justify-center mx-auto">
+                      <Upload className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-medium text-zinc-300">
+                        Drop your CSV or Excel file here, or <span className="text-emerald-400 underline">browse</span>
+                      </div>
+                      <div className="text-[11px] text-zinc-500 mt-0.5">Supports .csv, .xlsx, .xls</div>
+                    </div>
+                  </label>
+                )}
+              </div>
+            )}
+
+            {/* Results Feedback Card */}
+            {importResult && (
+              <div className="space-y-3 p-4 rounded-xl bg-zinc-950/90 border border-zinc-800">
+                <div className="flex items-center gap-2 text-sm font-semibold text-emerald-400">
+                  <CheckCircle2 className="w-4 h-4" />
+                  Import Finished!
+                </div>
+                <div className="grid grid-cols-2 gap-2 font-mono text-xs">
+                  <div className="p-2.5 rounded-lg bg-zinc-900 border border-zinc-800/80">
+                    <div className="text-[10px] text-zinc-400">Imported into Pipeline</div>
+                    <div className="text-lg font-bold text-emerald-400">+{importResult.imported_count}</div>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-zinc-900 border border-zinc-800/80">
+                    <div className="text-[10px] text-zinc-400">Skipped (Duplicates/Invalid)</div>
+                    <div className="text-lg font-bold text-zinc-400">{importResult.skipped_count}</div>
+                  </div>
+                </div>
+
+                {importResult.errors && importResult.errors.length > 0 && (
+                  <div className="space-y-1">
+                    <div className="text-[10px] font-medium text-zinc-400">Details / Skipped Rows:</div>
+                    <div className="max-h-28 overflow-y-auto space-y-1 p-2 bg-zinc-900/60 rounded-lg text-[10px] font-mono text-zinc-400 border border-zinc-800/50">
+                      {importResult.errors.map((err, i) => (
+                        <div key={i} className="truncate">{err}</div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-800/80">
+              {!importResult ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setShowImportModal(false)}
+                    disabled={importing}
+                    className="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleUploadFile}
+                    disabled={!selectedFile || importing}
+                    className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white shadow-md transition-colors disabled:opacity-50"
+                  >
+                    {importing ? (
+                      <>
+                        <div className="w-3.5 h-3.5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                        Importing leads...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-3.5 h-3.5" />
+                        Import Leads
+                      </>
+                    )}
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowImportModal(false)}
+                  className="px-4 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white shadow-md transition-colors"
+                >
+                  Done & View Leads
                 </button>
               )}
             </div>

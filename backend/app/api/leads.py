@@ -1,6 +1,11 @@
+import os
+import io
+import csv
+import re
 from typing import List, Optional
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File
+import openpyxl
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, or_
@@ -196,6 +201,216 @@ async def bulk_import_leads(
         "imported_count": imported_count,
         "skipped_count": skipped_count
     }
+
+
+def normalize_col_name(name: str) -> str:
+    """Removes non-alphanumeric chars and converts to lower case."""
+    if not name:
+        return ""
+    return re.sub(r"[^a-zA-Z0-9]", "", str(name).strip().lower())
+
+
+COLUMN_MAPPINGS = {
+    "business_name": {"businessname", "business", "companyname", "company", "name", "storename", "store", "title", "restaurant", "shopname", "place"},
+    "phone_number": {"phonenumber", "phone", "mobile", "mobilenumber", "tel", "telephone", "whatsapp", "contactnumber", "cell", "cellphone", "phoneno"},
+    "rating": {"rating", "stars", "starrating", "googlerating", "reviewscore", "reviews", "score"},
+    "address": {"address", "location", "fulladdress", "street", "streetaddress", "addr", "city"},
+    "contact_name": {"contactname", "contact", "owner", "ownername", "person", "fullname"},
+    "website": {"website", "url", "link", "site", "web"},
+    "notes": {"notes", "description", "comments", "comment", "info"}
+}
+
+
+def map_row_to_lead_fields(raw_row: dict) -> dict:
+    """Maps arbitrary dictionary keys to standard Lead fields using known synonyms."""
+    mapped = {}
+    normalized_keys = {normalize_col_name(k): k for k in raw_row.keys()}
+
+    for target_field, synonyms in COLUMN_MAPPINGS.items():
+        for syn in synonyms:
+            if syn in normalized_keys:
+                orig_key = normalized_keys[syn]
+                val = raw_row[orig_key]
+                if val is not None and str(val).strip():
+                    mapped[target_field] = str(val).strip()
+                break
+
+    # If contact_name accidentally matched the same column as business_name, remove contact_name
+    if mapped.get("contact_name") and mapped.get("contact_name") == mapped.get("business_name"):
+        mapped.pop("contact_name", None)
+
+    return mapped
+
+
+def parse_csv_file(contents: bytes) -> List[dict]:
+    text = None
+    for enc in ["utf-8-sig", "utf-8", "latin-1", "cp1252"]:
+        try:
+            text = contents.decode(enc)
+            break
+        except Exception:
+            continue
+    if text is None:
+        raise ValueError("Could not decode CSV file. Please ensure it is saved in UTF-8 or standard CSV encoding.")
+
+    f = io.StringIO(text)
+    try:
+        sample = text[:2048]
+        dialect = csv.Sniffer().sniff(sample, delimiters=",\t;|")
+        f.seek(0)
+        reader = csv.DictReader(f, dialect=dialect)
+    except Exception:
+        f.seek(0)
+        reader = csv.DictReader(f)
+
+    rows = []
+    for r in reader:
+        if any(v and str(v).strip() for v in r.values()):
+            rows.append(r)
+    return rows
+
+
+def parse_excel_file(contents: bytes) -> List[dict]:
+    wb = openpyxl.load_workbook(io.BytesIO(contents), data_only=True)
+    sheet = wb.active
+    rows = list(sheet.iter_rows(values_only=True))
+    if not rows:
+        return []
+
+    header_idx = -1
+    headers = []
+    for idx, row in enumerate(rows):
+        non_empty = [c for c in row if c is not None and str(c).strip()]
+        if len(non_empty) >= 1:
+            header_idx = idx
+            headers = [str(c).strip() if c is not None else f"col_{i}" for i, c in enumerate(row)]
+            break
+
+    if header_idx == -1:
+        return []
+
+    parsed_rows = []
+    for row in rows[header_idx + 1:]:
+        if not any(c is not None and str(c).strip() for c in row):
+            continue
+        row_dict = {}
+        for i, val in enumerate(row):
+            if i < len(headers):
+                row_dict[headers[i]] = val
+        parsed_rows.append(row_dict)
+
+    return parsed_rows
+
+
+@router.post("/import-file")
+async def import_leads_file(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Parses an uploaded CSV or Excel (.xlsx) file, maps columns intelligently,
+    normalizes phone numbers, deduplicates against existing records, and imports leads.
+    """
+    filename = file.filename or "uploaded_leads"
+    ext = os.path.splitext(filename)[1].lower()
+
+    if ext not in [".csv", ".xlsx", ".xls", ".txt"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file format '{ext}'. Please upload a CSV (.csv) or Excel (.xlsx) file."
+        )
+
+    contents = await file.read()
+    if not contents:
+        raise HTTPException(status_code=400, detail="The uploaded file is empty.")
+
+    try:
+        if ext in [".xlsx", ".xls"]:
+            raw_rows = parse_excel_file(contents)
+        else:
+            raw_rows = parse_csv_file(contents)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read file: {str(e)}")
+
+    if not raw_rows:
+        raise HTTPException(status_code=400, detail="No data rows found in the uploaded file.")
+
+    imported_count = 0
+    skipped_count = 0
+    errors = []
+    seen_in_batch = set()
+
+    for idx, raw_row in enumerate(raw_rows, start=1):
+        fields = map_row_to_lead_fields(raw_row)
+        bname = fields.get("business_name")
+        phone_raw = fields.get("phone_number")
+
+        if not bname:
+            errors.append(f"Row {idx}: Skipped (Missing business name)")
+            skipped_count += 1
+            continue
+
+        if not phone_raw:
+            errors.append(f"Row {idx} ({bname}): Skipped (Missing phone number)")
+            skipped_count += 1
+            continue
+
+        clean_e164, formatted = normalize_phone(phone_raw)
+        effective_phone = clean_e164 or phone_raw.strip()
+        effective_formatted = formatted or effective_phone
+
+        # Check duplicate within this upload batch
+        if effective_phone in seen_in_batch:
+            errors.append(f"Row {idx} ({bname}): Duplicate phone ({effective_phone}) within file")
+            skipped_count += 1
+            continue
+
+        # Check existing lead duplicate in database
+        existing = await find_lead_by_phone(db, effective_phone)
+        if existing:
+            errors.append(f"Row {idx} ({bname}): Phone ({effective_phone}) already in Outreach Master")
+            skipped_count += 1
+            continue
+
+        seen_in_batch.add(effective_phone)
+
+        # Parse rating
+        parsed_rating = None
+        if fields.get("rating"):
+            try:
+                r_val = float(str(fields["rating"]).replace("/5", "").strip())
+                if 1.0 <= r_val <= 5.0:
+                    parsed_rating = r_val
+            except Exception:
+                parsed_rating = None
+
+        new_lead = Lead(
+            business_name=bname,
+            contact_name=fields.get("contact_name"),
+            phone_number=effective_phone,
+            formatted_phone=effective_formatted,
+            phone_type="mobile",
+            address=fields.get("address"),
+            rating=parsed_rating,
+            website=fields.get("website"),
+            notes=fields.get("notes"),
+            status=LeadStatus.NEW
+        )
+        db.add(new_lead)
+        imported_count += 1
+
+    await db.commit()
+
+    return {
+        "success": True,
+        "filename": filename,
+        "total_rows": len(raw_rows),
+        "imported_count": imported_count,
+        "skipped_count": skipped_count,
+        "errors": errors[:50]
+    }
+
 
 
 @router.post("/merge-duplicates")

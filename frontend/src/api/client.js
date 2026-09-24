@@ -49,6 +49,13 @@ export const leadsApi = {
   list: (params) => api.get('/leads', { params }),
   create: (data) => api.post('/leads', data),
   bulkImport: (leads) => api.post('/leads/bulk-import', leads),
+  importFile: (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post('/leads/import-file', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
   get: (id) => api.get(`/leads/${id}`),
   updateStatus: (id, status) => api.patch(`/leads/${id}/status`, { status }),
   delete: (id) => api.delete(`/leads/${id}`),

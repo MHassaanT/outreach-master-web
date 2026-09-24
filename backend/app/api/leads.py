@@ -379,9 +379,12 @@ async def import_leads_file(
         parsed_rating = None
         if fields.get("rating"):
             try:
-                r_val = float(str(fields["rating"]).replace("/5", "").strip())
-                if 1.0 <= r_val <= 5.0:
-                    parsed_rating = r_val
+                raw_r = str(fields["rating"]).replace(",", ".").strip()
+                m = re.search(r"(\d+(?:\.\d+)?)", raw_r)
+                if m:
+                    r_val = float(m.group(1))
+                    if 1.0 <= r_val <= 5.0:
+                        parsed_rating = round(r_val, 2)
             except Exception:
                 parsed_rating = None
 

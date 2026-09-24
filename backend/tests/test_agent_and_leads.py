@@ -108,12 +108,12 @@ async def test_csv_lead_import():
         token = reg_res.json()["access_token"]
         headers = {"Authorization": f"Bearer {token}"}
 
-        # Create sample CSV with Name, Phone Number, Location
+        # Create sample CSV with Name, Phone Number, Location, Rating
         csv_data = (
-            "Name,Phone Number,Location\n"
-            "The Artisan Coffee Roast,+44 7700 900123,\"15 Regent Street, London\"\n"
-            "Harbor Seafood Grill,07700900456,\"22 Ocean Way, Bristol\"\n"
-            "The Artisan Coffee Roast,+44 7700 900123,\"Duplicate row in same file\"\n"
+            "Name,Phone Number,Location,Rating\n"
+            "The Artisan Coffee Roast,+44 7700 900123,\"15 Regent Street, London\",4.8\n"
+            "Harbor Seafood Grill,07700900456,\"22 Ocean Way, Bristol\",4.6/5\n"
+            "The Artisan Coffee Roast,+44 7700 900123,\"Duplicate row in same file\",4.8\n"
         ).encode("utf-8")
 
         files = {"file": ("leads_test.csv", csv_data, "text/csv")}
@@ -133,10 +133,14 @@ async def test_csv_lead_import():
         assert "The Artisan Coffee Roast" in names
         assert "Harbor Seafood Grill" in names
 
-        # Check location was mapped to address
+        # Check location was mapped to address and rating was parsed
         artisan = next(l for l in leads if l["business_name"] == "The Artisan Coffee Roast")
         assert "Regent Street" in artisan["address"]
+        assert artisan["rating"] == 4.8
         assert artisan["status"] == "new"
+
+        grill = next(l for l in leads if l["business_name"] == "Harbor Seafood Grill")
+        assert grill["rating"] == 4.6
 
 
 @pytest.mark.asyncio
@@ -159,9 +163,9 @@ async def test_excel_lead_import():
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = "Leads"
-        ws.append(["Name", "Phone Number", "Location"])
-        ws.append(["Piccadilly Bakery", "+44 7700 900789", "Piccadilly Circus, London"])
-        ws.append(["Soho Burger Bar", "+44 7700 900999", "Dean Street, Soho"])
+        ws.append(["Name", "Phone Number", "Location", "Rating"])
+        ws.append(["Piccadilly Bakery", "+44 7700 900789", "Piccadilly Circus, London", 4.9])
+        ws.append(["Soho Burger Bar", "+44 7700 900999", "Dean Street, Soho", "4,7"])
 
         excel_buffer = io.BytesIO()
         wb.save(excel_buffer)
@@ -174,6 +178,15 @@ async def test_excel_lead_import():
         assert data["success"] is True
         assert data["imported_count"] == 2
         assert data["skipped_count"] == 0
+
+        # Verify rating in imported Excel leads
+        leads_res = await client.get("/api/leads", headers=headers)
+        assert leads_res.status_code == 200
+        leads = leads_res.json()
+        piccadilly = next(l for l in leads if l["business_name"] == "Piccadilly Bakery")
+        assert piccadilly["rating"] == 4.9
+        soho = next(l for l in leads if l["business_name"] == "Soho Burger Bar")
+        assert soho["rating"] == 4.7
 
         # Verify second upload of the same file reports them as duplicates
         res2 = await client.post("/api/leads/import-file", files=files, headers=headers)

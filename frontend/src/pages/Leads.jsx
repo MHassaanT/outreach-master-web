@@ -238,9 +238,9 @@ export default function Leads({ setActiveTab, setSelectedLeadId }) {
   };
 
   const handleDownloadSampleCsv = () => {
-    const csvContent = "Name,Phone Number,Location\n" +
-      "Acme Artisanal Coffee,+44 7712 345678,\"12 Baker Street, London\"\n" +
-      "The Rustic Bistro,+44 7890 123456,\"45 High Street, Manchester\"\n";
+    const csvContent = "Name,Phone Number,Location,Rating\n" +
+      "Acme Artisanal Coffee,+44 7712 345678,\"12 Baker Street, London\",4.9\n" +
+      "The Rustic Bistro,+44 7890 123456,\"45 High Street, Manchester\",4.7\n";
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -868,7 +868,7 @@ export default function Leads({ setActiveTab, setSelectedLeadId }) {
             {/* Expected Fields Banner */}
             <div className="p-3.5 rounded-xl bg-zinc-950/70 border border-zinc-800 text-xs space-y-2">
               <div className="flex items-center justify-between">
-                <span className="font-medium text-zinc-200">Required Spreadsheet Columns:</span>
+                <span className="font-medium text-zinc-200">Spreadsheet Columns:</span>
                 <button
                   type="button"
                   onClick={handleDownloadSampleCsv}
@@ -878,7 +878,7 @@ export default function Leads({ setActiveTab, setSelectedLeadId }) {
                   Download Sample CSV
                 </button>
               </div>
-              <div className="grid grid-cols-3 gap-2 text-center text-[11px] font-mono">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-[11px] font-mono">
                 <div className="p-1.5 rounded-lg bg-zinc-900 border border-zinc-700/60 text-emerald-400 font-semibold">
                   Name
                 </div>
@@ -888,9 +888,12 @@ export default function Leads({ setActiveTab, setSelectedLeadId }) {
                 <div className="p-1.5 rounded-lg bg-zinc-900 border border-zinc-700/60 text-emerald-400 font-semibold">
                   Location
                 </div>
+                <div className="p-1.5 rounded-lg bg-zinc-900 border border-zinc-700/60 text-emerald-400 font-semibold">
+                  Rating
+                </div>
               </div>
               <p className="text-[11px] text-zinc-400 leading-relaxed">
-                Also optionally supports <strong>Rating</strong>, <strong>Website</strong>, and <strong>Notes</strong>. Phone numbers are automatically verified and converted to international format.
+                Supports numeric rating (e.g. 4.8 or 5.0) for personalized outreach templates. Phone numbers are automatically verified and converted to international format.
               </p>
             </div>
 

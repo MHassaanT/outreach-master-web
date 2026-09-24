@@ -82,6 +82,7 @@ export const messagingApi = {
       language_code: languageCode || 'en_US',
       parameters: parameters || [],
     }),
+  sendBulkTemplate: (data) => api.post('/messaging/bulk-send-template', data),
   syncThreads: () => api.post('/messaging/sync-threads'),
 };
 

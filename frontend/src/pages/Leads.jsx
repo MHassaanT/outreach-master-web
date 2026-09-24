@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { leadsApi } from '../api/client';
+import { leadsApi, messagingApi } from '../api/client';
 import StatusBadge from '../components/StatusBadge';
 import { 
   Users, 
@@ -10,7 +10,13 @@ import {
   ExternalLink, 
   RefreshCw,
   X,
-  Star
+  Star,
+  Send,
+  CheckCircle2,
+  AlertCircle,
+  Clock,
+  ShieldCheck,
+  Sparkles
 } from 'lucide-react';
 
 export default function Leads({ setActiveTab, setSelectedLeadId }) {
@@ -27,12 +33,24 @@ export default function Leads({ setActiveTab, setSelectedLeadId }) {
     notes: '',
   });
 
+  // Bulk Selection & Dispatch State
+  const [selectedLeadIds, setSelectedLeadIds] = useState(new Set());
+  const [showBulkModal, setShowBulkModal] = useState(false);
+  const [bulkTemplate, setBulkTemplate] = useState('outreach_template_1');
+  const [bulkCustomMode, setBulkCustomMode] = useState(false);
+  const [bulkCustomTemplate, setBulkCustomTemplate] = useState('');
+  const [bulkTopic, setBulkTopic] = useState('the website demo');
+  const [bulkSending, setBulkSending] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState(null);
+  const [bulkComplete, setBulkComplete] = useState(false);
+
   const fetchLeads = async () => {
     try {
       setLoading(true);
       const res = await leadsApi.list({
         status: statusFilter,
         search: search.trim() || undefined,
+        limit: 100,
       });
       setLeads(res.data);
     } catch (err) {
@@ -85,6 +103,93 @@ export default function Leads({ setActiveTab, setSelectedLeadId }) {
       fetchLeads();
     } catch (err) {
       alert(err.response?.data?.detail || 'Failed to create lead');
+    }
+  };
+
+  // Bulk selection helpers
+  const isAllSelected = leads.length > 0 && leads.every((l) => selectedLeadIds.has(l.id));
+  const isSomeSelected = selectedLeadIds.size > 0 && !isAllSelected;
+
+  const toggleSelectAll = () => {
+    if (isAllSelected) {
+      setSelectedLeadIds(new Set());
+    } else {
+      setSelectedLeadIds(new Set(leads.map((l) => l.id)));
+    }
+  };
+
+  const toggleSelectOne = (id) => {
+    const next = new Set(selectedLeadIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedLeadIds(next);
+  };
+
+  const selectAllNewLeads = () => {
+    const newIds = leads.filter((l) => l.status === 'new').map((l) => l.id);
+    setSelectedLeadIds(new Set(newIds));
+  };
+
+  const clearSelection = () => {
+    setSelectedLeadIds(new Set());
+  };
+
+  const handleStartBulkSend = async () => {
+    const templateToSend = (bulkCustomMode ? bulkCustomTemplate : bulkTemplate).trim();
+    if (!templateToSend) {
+      alert('Please select or enter a valid template name');
+      return;
+    }
+
+    const ids = Array.from(selectedLeadIds);
+    if (ids.length === 0) return;
+
+    setBulkSending(true);
+    setBulkComplete(false);
+    setBulkProgress({
+      current: 0,
+      total: ids.length,
+      successCount: 0,
+      failCount: 0,
+      logs: [],
+    });
+
+    const CHUNK_SIZE = 5;
+    let successTotal = 0;
+    let failTotal = 0;
+    const allLogs = [];
+
+    try {
+      for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
+        const chunk = ids.slice(i, i + CHUNK_SIZE);
+        const res = await messagingApi.sendBulkTemplate({
+          lead_ids: chunk,
+          template_name: templateToSend,
+          follow_up_topic: bulkTopic,
+          delay_min: 3.0,
+          delay_max: 5.0,
+        });
+
+        const { sent, failed, results } = res.data;
+        successTotal += sent;
+        failTotal += failed;
+        allLogs.push(...results);
+
+        setBulkProgress({
+          current: Math.min(i + CHUNK_SIZE, ids.length),
+          total: ids.length,
+          successCount: successTotal,
+          failCount: failTotal,
+          logs: [...allLogs],
+        });
+      }
+
+      setBulkComplete(true);
+      fetchLeads();
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Failed during bulk dispatch');
+    } finally {
+      setBulkSending(false);
     }
   };
 
@@ -156,12 +261,68 @@ export default function Leads({ setActiveTab, setSelectedLeadId }) {
         </form>
       </div>
 
+      {/* Quick Selection Shortcuts */}
+      {leads.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-xs text-zinc-400">
+          <div className="flex items-center gap-2">
+            <span>Showing {leads.length} leads</span>
+            {selectedLeadIds.size > 0 && (
+              <span className="text-emerald-400 font-medium">
+                ({selectedLeadIds.size} selected)
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={toggleSelectAll}
+              className="text-[11px] text-zinc-400 hover:text-zinc-200 underline"
+            >
+              {isAllSelected ? 'Deselect all visible' : 'Select all visible'}
+            </button>
+            {leads.some((l) => l.status === 'new') && (
+              <>
+                <span className="text-zinc-600">•</span>
+                <button
+                  onClick={selectAllNewLeads}
+                  className="text-[11px] text-emerald-400 hover:text-emerald-300 font-medium"
+                >
+                  Select all New ({leads.filter((l) => l.status === 'new').length})
+                </button>
+              </>
+            )}
+            {selectedLeadIds.size > 0 && (
+              <>
+                <span className="text-zinc-600">•</span>
+                <button
+                  onClick={clearSelection}
+                  className="text-[11px] text-rose-400 hover:text-rose-300 font-medium"
+                >
+                  Clear Selection
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Leads Table */}
       <div className="border border-zinc-800/80 rounded-xl bg-zinc-900/30 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead>
               <tr className="border-b border-zinc-800 bg-zinc-900/60 text-zinc-400 font-medium">
+                <th className="py-3 px-3 w-10 text-center">
+                  <input
+                    type="checkbox"
+                    checked={isAllSelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = isSomeSelected;
+                    }}
+                    onChange={toggleSelectAll}
+                    className="rounded border-zinc-700 bg-zinc-950 text-emerald-500 focus:ring-0 focus:ring-offset-0 cursor-pointer h-4 w-4"
+                    title={isAllSelected ? 'Deselect all' : 'Select all visible leads'}
+                  />
+                </th>
                 <th className="py-3 px-4">Business</th>
                 <th className="py-3 px-4">Phone Number</th>
                 <th className="py-3 px-4">Rating</th>
@@ -172,75 +333,89 @@ export default function Leads({ setActiveTab, setSelectedLeadId }) {
             <tbody className="divide-y divide-zinc-800/60">
               {loading ? (
                 <tr>
-                  <td colSpan={5} className="py-12 text-center text-zinc-500">
+                  <td colSpan={6} className="py-12 text-center text-zinc-500">
                     <div className="w-5 h-5 border-2 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin mx-auto mb-2" />
                     Loading leads...
                   </td>
                 </tr>
               ) : leads.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="py-12 text-center text-zinc-500">
+                  <td colSpan={6} className="py-12 text-center text-zinc-500">
                     No leads found in this stage. Use the <strong className="text-emerald-400">AI Lead Finder</strong> to discover prospective businesses!
                   </td>
                 </tr>
               ) : (
-                leads.map((lead) => (
-                  <tr key={lead.id} className="hover:bg-zinc-800/20 transition-colors">
-                    <td className="py-3 px-4">
-                      <div className="font-medium text-zinc-200">{lead.business_name}</div>
-                      <div className="text-[11px] text-zinc-500 truncate max-w-xs">{lead.address || 'No address'}</div>
-                    </td>
-                    <td className="py-3 px-4">
-                      <div className="font-mono text-zinc-300">{lead.formatted_phone || lead.phone_number}</div>
-                      <div className="text-[10px] text-indigo-400">Mobile Verified</div>
-                    </td>
-                    <td className="py-3 px-4">
-                      {lead.rating ? (
-                        <div className="flex items-center gap-1 font-mono text-zinc-300">
-                          <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
-                          {lead.rating}
+                leads.map((lead) => {
+                  const isSelected = selectedLeadIds.has(lead.id);
+                  return (
+                    <tr 
+                      key={lead.id} 
+                      className={`transition-colors ${isSelected ? 'bg-emerald-950/20 hover:bg-emerald-950/30' : 'hover:bg-zinc-800/20'}`}
+                    >
+                      <td className="py-3 px-3 text-center">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelectOne(lead.id)}
+                          className="rounded border-zinc-700 bg-zinc-950 text-emerald-500 focus:ring-0 focus:ring-offset-0 cursor-pointer h-4 w-4"
+                        />
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="font-medium text-zinc-200">{lead.business_name}</div>
+                        <div className="text-[11px] text-zinc-500 truncate max-w-xs">{lead.address || 'No address'}</div>
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="font-mono text-zinc-300">{lead.formatted_phone || lead.phone_number}</div>
+                        <div className="text-[10px] text-indigo-400">Mobile Verified</div>
+                      </td>
+                      <td className="py-3 px-4">
+                        {lead.rating ? (
+                          <div className="flex items-center gap-1 font-mono text-zinc-300">
+                            <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                            {lead.rating}
+                          </div>
+                        ) : (
+                          <span className="text-zinc-600">—</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
+                        <select
+                          value={lead.status}
+                          onChange={(e) => handleStatusChange(lead.id, e.target.value)}
+                          className="bg-zinc-900 border border-zinc-800 text-zinc-300 rounded px-2 py-1 text-xs focus:outline-none focus:border-zinc-700"
+                        >
+                          <option value="new">New Lead</option>
+                          <option value="outreach_sent">Outreach Sent</option>
+                          <option value="ongoing">Ongoing (Replied)</option>
+                          <option value="finalized">Finalized</option>
+                          <option value="not_interested">Not Interested</option>
+                        </select>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => {
+                              setSelectedLeadId(lead.id);
+                              setActiveTab('messaging');
+                            }}
+                            className="flex items-center gap-1 px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-medium transition-colors"
+                            title="Message on WhatsApp"
+                          >
+                            <MessageSquare className="w-3 h-3 text-emerald-400" />
+                            Chat
+                          </button>
+                          <button
+                            onClick={() => handleDeleteLead(lead.id)}
+                            className="p-1 text-zinc-500 hover:text-rose-400 rounded transition-colors"
+                            title="Delete Lead"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
-                      ) : (
-                        <span className="text-zinc-600">—</span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4">
-                      <select
-                        value={lead.status}
-                        onChange={(e) => handleStatusChange(lead.id, e.target.value)}
-                        className="bg-zinc-900 border border-zinc-800 text-zinc-300 rounded px-2 py-1 text-xs focus:outline-none focus:border-zinc-700"
-                      >
-                        <option value="new">New Lead</option>
-                        <option value="outreach_sent">Outreach Sent</option>
-                        <option value="ongoing">Ongoing (Replied)</option>
-                        <option value="finalized">Finalized</option>
-                        <option value="not_interested">Not Interested</option>
-                      </select>
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => {
-                            setSelectedLeadId(lead.id);
-                            setActiveTab('messaging');
-                          }}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-medium transition-colors"
-                          title="Message on WhatsApp"
-                        >
-                          <MessageSquare className="w-3 h-3 text-emerald-400" />
-                          Chat
-                        </button>
-                        <button
-                          onClick={() => handleDeleteLead(lead.id)}
-                          className="p-1 text-zinc-500 hover:text-rose-400 rounded transition-colors"
-                          title="Delete Lead"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -338,6 +513,265 @@ export default function Leads({ setActiveTab, setSelectedLeadId }) {
           </div>
         </div>
       )}
+
+      {/* Floating Bulk Action Bar */}
+      {selectedLeadIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-zinc-900/95 border border-zinc-700/80 shadow-2xl backdrop-blur-md rounded-2xl px-5 py-3 flex items-center gap-4 text-xs text-zinc-200 animate-in fade-in slide-in-from-bottom-4 duration-200">
+          <div className="flex items-center gap-2">
+            <span className="flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="font-semibold text-zinc-100">{selectedLeadIds.size}</span>
+            <span className="text-zinc-400">leads selected</span>
+          </div>
+
+          <div className="h-4 w-px bg-zinc-700" />
+
+          <button
+            onClick={() => {
+              setBulkProgress(null);
+              setBulkComplete(false);
+              setShowBulkModal(true);
+            }}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-medium text-white bg-emerald-600 hover:bg-emerald-500 transition-colors shadow-md"
+          >
+            <Send className="w-3.5 h-3.5" />
+            Send Bulk Outreach Template
+          </button>
+
+          <button
+            onClick={clearSelection}
+            className="text-zinc-400 hover:text-zinc-200 px-2 py-1 rounded hover:bg-zinc-800 transition-colors"
+          >
+            Deselect All
+          </button>
+        </div>
+      )}
+
+      {/* Bulk Outreach Modal */}
+      {showBulkModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="w-full max-w-xl bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-4 shadow-2xl max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-800/80">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                  <Send className="w-4 h-4" />
+                </div>
+                <div>
+                  <h2 className="text-base font-semibold text-zinc-100">Bulk WhatsApp Outreach</h2>
+                  <p className="text-xs text-zinc-400">
+                    Dispatching to <strong className="text-emerald-400">{selectedLeadIds.size}</strong> selected leads
+                  </p>
+                </div>
+              </div>
+              {!bulkSending && (
+                <button
+                  onClick={() => setShowBulkModal(false)}
+                  className="text-zinc-500 hover:text-zinc-300 p-1 rounded-md"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            <div className="space-y-4 overflow-y-auto pr-1 flex-1">
+              {!bulkSending && !bulkComplete && (
+                <>
+                  {/* Template Picker */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <label className="font-medium text-zinc-300">Select Outreach Template</label>
+                      <button
+                        type="button"
+                        onClick={() => setBulkCustomMode(!bulkCustomMode)}
+                        className="text-emerald-400 hover:text-emerald-300 text-[11px] underline"
+                      >
+                        {bulkCustomMode ? '← Back to Presets' : '＋ Type custom template'}
+                      </button>
+                    </div>
+
+                    {bulkCustomMode ? (
+                      <input
+                        type="text"
+                        value={bulkCustomTemplate}
+                        onChange={(e) => setBulkCustomTemplate(e.target.value)}
+                        placeholder="e.g. initial_outreach (approved in Meta)"
+                        className="w-full bg-zinc-950 border border-zinc-800 text-xs text-zinc-200 rounded-lg px-3 py-2 focus:outline-none focus:border-emerald-500/50"
+                      />
+                    ) : (
+                      <select
+                        value={bulkTemplate}
+                        onChange={(e) => {
+                          if (e.target.value === '__custom__') {
+                            setBulkCustomMode(true);
+                          } else {
+                            setBulkTemplate(e.target.value);
+                          }
+                        }}
+                        className="w-full bg-zinc-950 border border-zinc-800 text-xs text-zinc-200 rounded-lg px-3 py-2 focus:outline-none"
+                      >
+                        <option value="outreach_template_1">{'outreach_template_1 — "Custom Website for {{1}}"'}</option>
+                        <option value="outreach_follow_up_1">{'outreach_follow_up_1 — "Just bumping this up..."'}</option>
+                        <option value="outreach_follow_up_2">{'outreach_follow_up_2 — "Follow Up regarding {{1}}"'}</option>
+                        <option value="initial_outreach">{'initial_outreach — "Hello {{1}}, we discovered your business..."'}</option>
+                        <option value="partnership_offer">{'partnership_offer — "Hi {{1}}, quick partnership inquiry..."'}</option>
+                        <option value="__custom__">＋ Type custom template name...</option>
+                      </select>
+                    )}
+                  </div>
+
+                  {/* Dynamic Template Context */}
+                  {bulkTemplate === 'outreach_template_1' && !bulkCustomMode && (
+                    <div className="p-3 rounded-xl bg-emerald-950/20 border border-emerald-800/40 text-xs space-y-1">
+                      <div className="font-semibold flex items-center gap-1.5 text-emerald-300">
+                        <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                        Automated Personalization Enabled
+                      </div>
+                      <p className="text-zinc-400 text-[11px] leading-relaxed">
+                        Each lead will automatically receive their exact <strong>Business Name</strong> in Header and Body, plus their actual <strong>Google Star Rating</strong> in Body (defaults to 4.8 if unrated).
+                      </p>
+                    </div>
+                  )}
+
+                  {bulkTemplate === 'outreach_follow_up_1' && !bulkCustomMode && (
+                    <div className="p-3 rounded-xl bg-zinc-800/40 border border-zinc-700/50 text-xs text-zinc-300">
+                      <div className="font-semibold text-zinc-200">Static Follow-up Template</div>
+                      <p className="text-zinc-400 text-[11px] mt-0.5">
+                        Dispatched with 0 parameters directly to each selected prospect.
+                      </p>
+                    </div>
+                  )}
+
+                  {bulkTemplate === 'outreach_follow_up_2' && !bulkCustomMode && (
+                    <div className="space-y-1.5 p-3 rounded-xl bg-zinc-800/40 border border-zinc-700/50 text-xs">
+                      <label className="text-[11px] text-zinc-300 block font-medium">
+                        Topic / Subject (Header & Body: "regarding {'{{1}}'}")
+                      </label>
+                      <input
+                        type="text"
+                        value={bulkTopic}
+                        onChange={(e) => setBulkTopic(e.target.value)}
+                        placeholder="e.g. the website demo, our website mockup"
+                        className="w-full bg-zinc-950 border border-zinc-800 text-zinc-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-emerald-500/50 text-xs"
+                      />
+                    </div>
+                  )}
+
+                  {/* Anti-Spam Rate Pacing Notice */}
+                  <div className="flex items-start gap-3 p-3 rounded-xl bg-zinc-950/60 border border-zinc-800/80 text-xs">
+                    <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <div className="space-y-0.5">
+                      <span className="text-zinc-200 font-medium">Anti-Spam Human Pacing (3.0s – 5.0s):</span>
+                      <p className="text-[11px] text-zinc-400 leading-relaxed">
+                        Messages are dispatched with a natural randomized delay (3 to 5 seconds per lead) to protect your WhatsApp Business number from automated rate detection and spam limits.
+                        Estimated duration for {selectedLeadIds.size} leads: ~{Math.ceil((selectedLeadIds.size * 4) / 60)} minutes.
+                      </p>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Progress and Live Dispatch View */}
+              {bulkProgress && (
+                <div className="space-y-3.5 p-4 rounded-xl bg-zinc-950/80 border border-zinc-800/80">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-medium text-zinc-200">
+                      {bulkComplete ? '🎉 Bulk Dispatch Complete!' : 'Dispatching in progress...'}
+                    </span>
+                    <span className="text-zinc-400 font-mono">
+                      {bulkProgress.current} / {bulkProgress.total} ({Math.round((bulkProgress.current / bulkProgress.total) * 100)}%)
+                    </span>
+                  </div>
+
+                  {/* Progress Bar */}
+                  <div className="w-full h-2.5 bg-zinc-800 rounded-full overflow-hidden">
+                    <div 
+                      className={`h-full transition-all duration-300 rounded-full ${bulkComplete ? 'bg-emerald-500' : 'bg-emerald-500 animate-pulse'}`}
+                      style={{ width: `${(bulkProgress.current / bulkProgress.total) * 100}%` }}
+                    />
+                  </div>
+
+                  {/* Counters */}
+                  <div className="flex items-center gap-4 text-xs font-mono">
+                    <div className="text-emerald-400 flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      {bulkProgress.successCount} sent
+                    </div>
+                    {bulkProgress.failCount > 0 && (
+                      <div className="text-rose-400 flex items-center gap-1.5">
+                        <AlertCircle className="w-3.5 h-3.5" />
+                        {bulkProgress.failCount} failed
+                      </div>
+                    )}
+                    {!bulkComplete && (
+                      <div className="text-zinc-500 flex items-center gap-1.5 ml-auto text-[11px]">
+                        <Clock className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+                        Pacing delay active...
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Live Activity Log */}
+                  <div className="max-h-48 overflow-y-auto space-y-1.5 p-2.5 bg-zinc-900/60 rounded-xl text-[11px] font-mono border border-zinc-800/50">
+                    {bulkProgress.logs.map((log, i) => (
+                      <div key={i} className={`flex items-center justify-between py-0.5 border-b border-zinc-800/30 last:border-0 ${log.success ? 'text-zinc-300' : 'text-rose-400'}`}>
+                        <span className="truncate max-w-[300px]">
+                          {log.business_name} <span className="text-zinc-500">({log.phone_number})</span>
+                        </span>
+                        <span className={log.success ? 'text-emerald-400 shrink-0 font-medium' : 'text-rose-400 shrink-0 font-medium'}>
+                          {log.success ? '✓ Sent' : `✗ ${log.error || 'Failed'}`}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-800/80">
+              {!bulkSending && !bulkComplete && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setShowBulkModal(false)}
+                    className="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleStartBulkSend}
+                    className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white shadow-md transition-colors"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    Start Bulk Dispatch ({selectedLeadIds.size})
+                  </button>
+                </>
+              )}
+
+              {bulkSending && (
+                <div className="flex items-center gap-2 text-xs text-zinc-400 py-1">
+                  <div className="w-3.5 h-3.5 border-2 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin" />
+                  <span>Dispatching messages safely with rate pacing...</span>
+                </div>
+              )}
+
+              {bulkComplete && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowBulkModal(false);
+                    clearSelection();
+                  }}
+                  className="px-4 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white shadow-md transition-colors"
+                >
+                  Done & Refresh Pipeline
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

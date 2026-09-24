@@ -1,6 +1,8 @@
 import os
 import uuid
 import mimetypes
+import asyncio
+import random
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File, Form
@@ -42,6 +44,16 @@ class SendTemplateRequest(BaseModel):
     template_name: str
     language_code: str = "en_US"
     parameters: Optional[List[str]] = None
+
+
+class BulkSendTemplateRequest(BaseModel):
+    lead_ids: List[int]
+    template_name: str
+    language_code: Optional[str] = "en"
+    parameters: Optional[List[str]] = None
+    follow_up_topic: Optional[str] = "the website demo"
+    delay_min: Optional[float] = 3.0
+    delay_max: Optional[float] = 5.0
 
 
 def ensure_utc(dt: Optional[datetime]) -> Optional[datetime]:
@@ -349,6 +361,130 @@ async def send_template_message(
             "timestamp": new_message.timestamp.isoformat(),
             "mock": send_result.get("mock", False)
         }
+    }
+
+
+@router.post("/bulk-send-template")
+async def bulk_send_template(
+    body: BulkSendTemplateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Dispatches a WhatsApp template to multiple leads with individual variable personalization,
+    safe randomized rate-pacing (default 3.0s-5.0s), and database tracking.
+    """
+    if not body.lead_ids:
+        raise HTTPException(status_code=400, detail="No lead IDs provided")
+
+    stmt = select(Lead).where(Lead.id.in_(body.lead_ids))
+    lead_res = await db.execute(stmt)
+    leads_map = {lead.id: lead for lead in lead_res.scalars().all()}
+
+    results = []
+    success_count = 0
+    fail_count = 0
+
+    d_min = max(0.5, body.delay_min if body.delay_min is not None else 3.0)
+    d_max = max(d_min, body.delay_max if body.delay_max is not None else 5.0)
+
+    for idx, lead_id in enumerate(body.lead_ids):
+        lead = leads_map.get(lead_id)
+        if not lead:
+            results.append({
+                "lead_id": lead_id,
+                "business_name": "Unknown",
+                "phone_number": "",
+                "success": False,
+                "error": "Lead not found in database"
+            })
+            fail_count += 1
+            continue
+
+        # Resolve parameters per template
+        header_params = None
+        if body.template_name == "hello_world":
+            params = None
+            lang = body.language_code or "en_US"
+        elif body.template_name == "outreach_template_1":
+            lang = "en"
+            header_params = [lead.business_name]
+            rating_str = f"{lead.rating:.1f}" if lead.rating else "4.8"
+            params = [rating_str, lead.business_name]
+        elif body.template_name == "outreach_follow_up_1":
+            lang = "en"
+            params = None
+            header_params = None
+        elif body.template_name == "outreach_follow_up_2":
+            lang = "en"
+            topic = body.follow_up_topic.strip() if body.follow_up_topic else "the website demo"
+            header_params = [topic]
+            params = [topic]
+        else:
+            lang = body.language_code or "en"
+            params = body.parameters if body.parameters is not None else [lead.business_name]
+
+        # Dispatch via WhatsApp API
+        send_result = await whatsapp_service.send_template_message(
+            to_phone=lead.phone_number,
+            template_name=body.template_name,
+            language_code=lang,
+            body_parameters=params,
+            header_parameters=header_params
+        )
+
+        now = datetime.now(timezone.utc)
+        if params:
+            display_content = f"Template: {body.template_name} (Params: {', '.join(params)})"
+        else:
+            display_content = f"Template: {body.template_name}"
+
+        is_success = bool(send_result.get("success"))
+        if is_success:
+            success_count += 1
+        else:
+            fail_count += 1
+
+        new_message = Message(
+            lead_id=lead.id,
+            direction=MessageDirection.OUTBOUND,
+            message_type=MessageType.TEMPLATE,
+            template_name=body.template_name,
+            content=display_content,
+            status=MessageStatus.SENT if is_success else MessageStatus.FAILED,
+            whatsapp_message_id=send_result.get("message_id"),
+            error_details=send_result.get("error"),
+            timestamp=now
+        )
+        db.add(new_message)
+
+        lead.last_contacted_at = now
+        lead.updated_at = now
+        if lead.status == LeadStatus.NEW:
+            lead.status = LeadStatus.OUTREACH_SENT
+
+        await db.commit()
+
+        results.append({
+            "lead_id": lead.id,
+            "business_name": lead.business_name,
+            "phone_number": lead.formatted_phone or lead.phone_number,
+            "success": is_success,
+            "message_id": send_result.get("message_id"),
+            "error": send_result.get("error") if not is_success else None
+        })
+
+        # Apply random pacing delay between 3.0s and 5.0s (unless it is the final lead)
+        if idx < len(body.lead_ids) - 1:
+            delay = random.uniform(d_min, d_max)
+            await asyncio.sleep(delay)
+
+    return {
+        "success": True,
+        "total": len(body.lead_ids),
+        "sent": success_count,
+        "failed": fail_count,
+        "results": results
     }
 
 

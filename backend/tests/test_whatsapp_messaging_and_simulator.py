@@ -295,3 +295,63 @@ async def test_auto_merge_existing_split_threads():
         assert len(data["messages"]) == 2
         assert data["messages"][0]["direction"] == "outbound"
         assert data["messages"][1]["direction"] == "inbound"
+
+
+@pytest.mark.asyncio
+async def test_bulk_send_template():
+    whatsapp_service.mock_mode = True
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    test_email = f"bulk_tester_{uuid.uuid4().hex[:8]}@example.com"
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Register user
+        reg_res = await client.post(
+            "/api/auth/register",
+            json={"name": "Bulk Specialist", "email": test_email, "password": "securepassword"}
+        )
+        token = reg_res.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # Create 3 leads
+        created_ids = []
+        for i in range(1, 4):
+            res = await client.post(
+                "/api/leads",
+                json={
+                    "business_name": f"Bulk Test Bistro {i}",
+                    "phone_number": f"+44789012345{i}",
+                    "rating": 4.5 + (i * 0.1),
+                    "phone_type": "mobile"
+                },
+                headers=headers
+            )
+            assert res.status_code == 201
+            created_ids.append(res.json()["id"])
+
+        # Call bulk-send-template
+        bulk_res = await client.post(
+            "/api/messaging/bulk-send-template",
+            json={
+                "lead_ids": created_ids,
+                "template_name": "outreach_template_1",
+                "delay_min": 0.01,
+                "delay_max": 0.02
+            },
+            headers=headers
+        )
+        assert bulk_res.status_code == 200
+        data = bulk_res.json()
+        assert data["success"] is True
+        assert data["total"] == 3
+        assert data["sent"] == 3
+        assert data["failed"] == 0
+        assert len(data["results"]) == 3
+
+        # Verify all leads transitioned to outreach_sent
+        for lid in created_ids:
+            check = await client.get(f"/api/leads/{lid}", headers=headers)
+            assert check.status_code == 200
+            assert check.json()["status"] == "outreach_sent"
+

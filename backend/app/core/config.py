@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     WHATSAPP_API_VERSION: str = "v21.0"
     WHATSAPP_MOCK_MODE: bool = True  # Allows offline testing/simulation
 
+    # Firebase Cloud Messaging (FCM Push Notifications)
+    FIREBASE_SERVER_KEY: Optional[str] = None
+    FIREBASE_PROJECT_ID: Optional[str] = None
+    FIREBASE_SERVICE_ACCOUNT_JSON: Optional[str] = None
+    FIREBASE_SERVICE_ACCOUNT_BASE64: Optional[str] = None
+
     model_config = SettingsConfigDict(
         env_file=ENV_FILE_PATH,
         env_file_encoding="utf-8",

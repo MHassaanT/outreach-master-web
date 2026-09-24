@@ -13,6 +13,7 @@ from app.api.agent import router as agent_router
 from app.api.whatsapp import router as whatsapp_router
 from app.api.simulator import router as simulator_router
 from app.api.settings import router as settings_router
+from app.api.notifications import router as notifications_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("outreach_master")
@@ -84,6 +85,7 @@ app.include_router(agent_router, prefix=settings.API_V1_STR)
 app.include_router(whatsapp_router, prefix=settings.API_V1_STR)
 app.include_router(simulator_router, prefix=settings.API_V1_STR)
 app.include_router(settings_router, prefix=settings.API_V1_STR)
+app.include_router(notifications_router, prefix=settings.API_V1_STR)
 
 
 @app.get("/health")

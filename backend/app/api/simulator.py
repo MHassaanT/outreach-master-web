@@ -92,6 +92,18 @@ async def simulate_lead_reply(
     await db.commit()
     await db.refresh(inbound_msg)
 
+    # Dispatch FCM push notification
+    try:
+        from app.services.push_service import send_fcm_push
+        await send_fcm_push(
+            db=db,
+            title=lead.business_name or "WhatsApp Lead",
+            body=body.reply_text,
+            lead_id=lead.id
+        )
+    except Exception as pe:
+        pass
+
     return {
         "success": True,
         "lead_status": lead.status.value,
@@ -170,6 +182,18 @@ async def simulate_lead_audio_reply(
 
     await db.commit()
     await db.refresh(inbound_msg)
+
+    # Dispatch FCM push notification
+    try:
+        from app.services.push_service import send_fcm_push
+        await send_fcm_push(
+            db=db,
+            title=lead.business_name or "WhatsApp Lead",
+            body=f"🎤 Voice note ({dur}s)",
+            lead_id=lead.id
+        )
+    except Exception as pe:
+        pass
 
     return {
         "success": True,

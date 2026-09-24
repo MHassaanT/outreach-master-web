@@ -199,6 +199,19 @@ async def receive_webhook_payload(request: Request, db: AsyncSession = Depends(g
                     if lead.status != LeadStatus.FINALIZED:
                         lead.status = LeadStatus.ONGOING
 
+                    # Dispatch FCM push notification to mobile devices (wakes phone if app is closed)
+                    try:
+                        from app.services.push_service import send_fcm_push
+                        push_body = body_text if msg_type_enum != MessageType.AUDIO else "🎤 Voice note"
+                        await send_fcm_push(
+                            db=db,
+                            title=lead.business_name or "WhatsApp Message",
+                            body=push_body,
+                            lead_id=lead.id
+                        )
+                    except Exception as pe:
+                        logger.warning("Push notification error for incoming WhatsApp message: %s", pe)
+
             # 2. Process Meta Coexistence Echoes (smb_message_echoes / message_echoes)
             # Sent manually from the WhatsApp Business mobile app on your phone
             echoes = value.get("smb_message_echoes", []) or value.get("message_echoes", [])

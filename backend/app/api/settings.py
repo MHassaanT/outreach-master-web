@@ -20,6 +20,9 @@ class SettingsUpdate(BaseModel):
     whatsapp_access_token: Optional[str] = None
     whatsapp_verify_token: Optional[str] = None
     whatsapp_mock_mode: Optional[bool] = None
+    firebase_server_key: Optional[str] = None
+    firebase_project_id: Optional[str] = None
+    firebase_service_account_base64: Optional[str] = None
 
 
 @router.get("")
@@ -33,6 +36,7 @@ async def get_settings(current_user: User = Depends(get_current_user)):
             return "••••••••"
         return val[:4] + "••••••••" + val[-4:]
 
+    has_sa = bool(settings.FIREBASE_SERVICE_ACCOUNT_BASE64 or settings.FIREBASE_SERVICE_ACCOUNT_JSON)
     return {
         "gemini_api_key_configured": bool(settings.GEMINI_API_KEY and not settings.GEMINI_API_KEY.startswith("YOUR_")),
         "google_maps_api_key_configured": bool(settings.GOOGLE_MAPS_API_KEY and not settings.GOOGLE_MAPS_API_KEY.startswith("YOUR_")),
@@ -47,7 +51,12 @@ async def get_settings(current_user: User = Depends(get_current_user)):
         "gemini_masked": mask(settings.GEMINI_API_KEY),
         "google_maps_masked": mask(settings.GOOGLE_MAPS_API_KEY),
         "whatsapp_token_masked": mask(settings.WHATSAPP_ACCESS_TOKEN),
-        "whatsapp_secret_masked": mask(settings.WHATSAPP_APP_SECRET)
+        "whatsapp_secret_masked": mask(settings.WHATSAPP_APP_SECRET),
+        "firebase_configured": bool(has_sa or settings.FIREBASE_SERVER_KEY),
+        "firebase_service_account_configured": has_sa,
+        "firebase_server_key_configured": bool(settings.FIREBASE_SERVER_KEY),
+        "firebase_server_key_masked": mask(settings.FIREBASE_SERVER_KEY),
+        "firebase_project_id": settings.FIREBASE_PROJECT_ID or ""
     }
 
 
@@ -86,6 +95,15 @@ async def update_settings(body: SettingsUpdate, current_user: User = Depends(get
     if body.whatsapp_mock_mode is not None:
         settings.WHATSAPP_MOCK_MODE = body.whatsapp_mock_mode
         updates_to_persist["WHATSAPP_MOCK_MODE"] = settings.WHATSAPP_MOCK_MODE
+    if body.firebase_server_key is not None and body.firebase_server_key.strip():
+        settings.FIREBASE_SERVER_KEY = body.firebase_server_key.strip()
+        updates_to_persist["FIREBASE_SERVER_KEY"] = settings.FIREBASE_SERVER_KEY
+    if body.firebase_project_id is not None and body.firebase_project_id.strip():
+        settings.FIREBASE_PROJECT_ID = body.firebase_project_id.strip()
+        updates_to_persist["FIREBASE_PROJECT_ID"] = settings.FIREBASE_PROJECT_ID
+    if body.firebase_service_account_base64 is not None and body.firebase_service_account_base64.strip():
+        settings.FIREBASE_SERVICE_ACCOUNT_BASE64 = body.firebase_service_account_base64.strip()
+        updates_to_persist["FIREBASE_SERVICE_ACCOUNT_BASE64"] = settings.FIREBASE_SERVICE_ACCOUNT_BASE64
 
     # Persist all updated configurations to backend .env file
     if updates_to_persist:

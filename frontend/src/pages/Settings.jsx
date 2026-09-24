@@ -33,6 +33,8 @@ export default function Settings() {
     whatsapp_access_token: '',
     whatsapp_verify_token: '',
     whatsapp_mock_mode: true,
+    firebase_server_key: '',
+    firebase_service_account_base64: '',
   });
 
   const fetchSettings = async () => {
@@ -48,6 +50,8 @@ export default function Settings() {
         whatsapp_business_account_id: res.data.whatsapp_business_account_id || '',
         whatsapp_verify_token: res.data.whatsapp_verify_token || '',
         whatsapp_mock_mode: res.data.whatsapp_mock_mode ?? true,
+        firebase_server_key: res.data.firebase_server_key || '',
+        firebase_service_account_base64: '',
       }));
     } catch (err) {
       console.error('Failed to load settings:', err);
@@ -291,6 +295,52 @@ export default function Settings() {
                 onChange={(e) => setForm({ ...form, whatsapp_mock_mode: e.target.checked })}
                 className="w-4 h-4 rounded border-zinc-700 text-emerald-500 focus:ring-emerald-500"
               />
+            </div>
+          </div>
+
+          {/* Firebase Cloud Messaging (Mobile Push Alerts) */}
+          <div className="p-4 rounded-xl bg-zinc-900 border border-zinc-800 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-zinc-100">
+                <Smartphone className="w-4 h-4 text-amber-400" />
+                <h3 className="text-xs font-semibold uppercase tracking-wider">Google Firebase Push (FCM v1)</h3>
+              </div>
+              {config?.firebase_configured && (
+                <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-950 text-emerald-400 border border-emerald-800/80">
+                  {config?.firebase_service_account_configured ? 'Service Account Active' : 'Server Key Configured'}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-zinc-400">
+              Powers instant Android push notifications even when the Outreach Master Mobile app is completely closed or swiped away.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-zinc-400 mb-1">
+                  Firebase Server Key (Legacy FCM)
+                </label>
+                <input
+                  type="password"
+                  value={form.firebase_server_key}
+                  onChange={(e) => setForm({ ...form, firebase_server_key: e.target.value })}
+                  placeholder={config?.firebase_server_key_configured ? '•••••••••••••••• (Configured)' : 'AAAA...'}
+                  className="w-full px-3 py-2 rounded-lg bg-zinc-950 border border-zinc-800 text-xs text-zinc-200 focus:outline-none focus:border-zinc-700 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-zinc-400 mb-1">
+                  Firebase Service Account Base64 (HTTP v1)
+                </label>
+                <input
+                  type="password"
+                  value={form.firebase_service_account_base64}
+                  onChange={(e) => setForm({ ...form, firebase_service_account_base64: e.target.value })}
+                  placeholder={config?.firebase_service_account_configured ? '•••••••••••••••• (Active in Railway/Env)' : 'Paste base64 string...'}
+                  className="w-full px-3 py-2 rounded-lg bg-zinc-950 border border-zinc-800 text-xs text-zinc-200 focus:outline-none focus:border-zinc-700 font-mono"
+                />
+              </div>
             </div>
           </div>
 

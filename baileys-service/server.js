@@ -132,6 +132,14 @@ async function initWhatsApp(forceNew = false) {
 
 // REST Endpoints
 
+app.get('/', (req, res) => {
+  res.json({ service: 'baileys-whatsapp-service', status: 'ok', connection: connectionStatus });
+});
+
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
+
 /**
  * GET /api/status - Get current connection state and active QR code
  */
@@ -281,6 +289,7 @@ if (fs.existsSync(credsFile)) {
   initWhatsApp();
 }
 
-app.listen(PORT, '127.0.0.1', () => {
-  console.log(`[Baileys] WhatsApp service running on http://127.0.0.1:${PORT}`);
+const HOST = process.env.HOST || '0.0.0.0';
+app.listen(PORT, HOST, () => {
+  console.log(`[Baileys] WhatsApp service running on http://${HOST}:${PORT}`);
 });

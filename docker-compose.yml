@@ -1,0 +1,33 @@
+services:
+  baileys-service:
+    build:
+      context: ./baileys-service
+      dockerfile: Dockerfile
+    container_name: outreach_baileys
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    volumes:
+      - baileys_auth:/app/auth_info_baileys
+    environment:
+      - PORT=3001
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: outreach_backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - backend_data:/app
+    environment:
+      - PORT=8000
+      - BAILEYS_SERVICE_URL=http://baileys-service:3001
+    depends_on:
+      - baileys-service
+
+volumes:
+  baileys_auth:
+  backend_data:

@@ -49,16 +49,18 @@ export const leadsApi = {
   list: (params) => api.get('/leads', { params }),
   create: (data) => api.post('/leads', data),
   bulkImport: (leads) => api.post('/leads/bulk-import', leads),
-  importFile: (file) => {
+  importFile: (file, verifyWhatsapp = false) => {
     const formData = new FormData();
     formData.append('file', file);
-    return api.post('/leads/import-file', formData, {
+    return api.post(`/leads/import-file?verify_whatsapp=${Boolean(verifyWhatsapp)}`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
   get: (id) => api.get(`/leads/${id}`),
+  update: (id, data) => api.put(`/leads/${id}`, data),
   updateStatus: (id, status) => api.patch(`/leads/${id}/status`, { status }),
   delete: (id) => api.delete(`/leads/${id}`),
+  bulkDelete: (leadIds) => api.post('/leads/bulk-delete', { lead_ids: leadIds }),
 };
 
 export const getMediaUrl = (url) => {
@@ -112,6 +114,14 @@ export const whatsappApi = {
 export const settingsApi = {
   get: () => api.get('/settings'),
   update: (data) => api.post('/settings', data),
+};
+
+export const baileysApi = {
+  getStatus: () => api.get('/baileys/status'),
+  connect: () => api.post('/baileys/connect'),
+  disconnect: () => api.post('/baileys/disconnect'),
+  verifySingle: (number) => api.post('/baileys/verify-single', { number }),
+  verifyNumbers: (numbers) => api.post('/baileys/verify-numbers', { numbers }),
 };
 
 export default api;

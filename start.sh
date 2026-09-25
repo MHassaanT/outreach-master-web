@@ -22,6 +22,18 @@ if [ ! -d "$DIR/frontend/node_modules" ]; then
     npm install
 fi
 
+# Check baileys-service node_modules
+if [ ! -d "$DIR/baileys-service/node_modules" ]; then
+    echo "[!] Installing baileys-service npm dependencies..."
+    cd "$DIR/baileys-service"
+    npm install
+fi
+
+echo "[*] Starting Baileys WhatsApp Service on http://127.0.0.1:3001..."
+cd "$DIR/baileys-service"
+npm start &
+BAILEYS_PID=$!
+
 echo "[*] Starting FastAPI Backend on http://127.0.0.1:8000..."
 cd "$DIR/backend"
 ./venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload &
@@ -35,6 +47,7 @@ FRONTEND_PID=$!
 cleanup() {
     echo ""
     echo "[*] Shutting down Outreach Master services..."
+    kill $BAILEYS_PID 2>/dev/null || true
     kill $BACKEND_PID 2>/dev/null || true
     kill $FRONTEND_PID 2>/dev/null || true
     exit 0
@@ -46,8 +59,9 @@ echo ""
 echo "Outreach Master is running!"
 echo "• Frontend: http://localhost:5173"
 echo "• Backend API Docs: http://127.0.0.1:8000/api/docs"
+echo "• Baileys WhatsApp: http://127.0.0.1:3001"
 echo "• Demo Login: admin@outreachmaster.com / admin123"
 echo ""
-echo "Press Ctrl+C to stop both servers."
+echo "Press Ctrl+C to stop all servers."
 
 wait

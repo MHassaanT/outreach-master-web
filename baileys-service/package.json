@@ -1,0 +1,18 @@
+{
+  "name": "baileys-whatsapp-service",
+  "version": "1.0.0",
+  "description": "Outreach Master Baileys WhatsApp Connection & onWhatsApp Verification Service",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.24",
+    "express": "^4.21.2",
+    "cors": "^2.8.5",
+    "pino": "^9.6.0",
+    "qrcode": "^1.5.4",
+    "@hapi/boom": "^10.0.1"
+  }
+}

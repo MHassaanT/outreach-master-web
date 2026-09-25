@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     WHATSAPP_API_VERSION: str = "v21.0"
     WHATSAPP_MOCK_MODE: bool = True  # Allows offline testing/simulation
 
+    # Baileys WhatsApp Web Bridge (QR Multi-Device & onWhatsApp verification)
+    BAILEYS_SERVICE_URL: str = "http://127.0.0.1:3001"
+
     # Firebase Cloud Messaging (FCM Push Notifications)
     FIREBASE_SERVER_KEY: Optional[str] = None
     FIREBASE_PROJECT_ID: Optional[str] = None

@@ -51,6 +51,8 @@ backend/outreach_master.db
 # Node & Frontend
 node_modules/
 frontend/node_modules/
+baileys-service/node_modules/
+baileys-service/auth_info_baileys/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

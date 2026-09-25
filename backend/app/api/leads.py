@@ -15,6 +15,7 @@ from app.api.deps import get_current_user
 from app.models.user import User
 from app.services.phone_filter import normalize_phone
 from app.services.lead_service import find_lead_by_phone, sanitize_and_merge_existing_leads
+from app.services.baileys_client import baileys_service
 
 router = APIRouter(prefix="/leads", tags=["Leads"])
 
@@ -40,8 +41,16 @@ class LeadUpdateStatus(BaseModel):
 class LeadUpdate(BaseModel):
     business_name: Optional[str] = None
     contact_name: Optional[str] = None
+    phone_number: Optional[str] = None
+    address: Optional[str] = None
+    rating: Optional[float] = None
+    website: Optional[str] = None
     notes: Optional[str] = None
     status: Optional[LeadStatus] = None
+
+
+class BulkDeleteRequest(BaseModel):
+    lead_ids: List[int]
 
 
 @router.get("")
@@ -305,12 +314,14 @@ def parse_excel_file(contents: bytes) -> List[dict]:
 @router.post("/import-file")
 async def import_leads_file(
     file: UploadFile = File(...),
+    verify_whatsapp: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
     Parses an uploaded CSV or Excel (.xlsx) file, maps columns intelligently,
-    normalizes phone numbers, deduplicates against existing records, and imports leads.
+    normalizes phone numbers, deduplicates against existing records, optionally checks
+    if the number exists on WhatsApp via Baileys onWhatsApp(), and imports leads.
     """
     filename = file.filename or "uploaded_leads"
     ext = os.path.splitext(filename)[1].lower()
@@ -336,10 +347,32 @@ async def import_leads_file(
     if not raw_rows:
         raise HTTPException(status_code=400, detail="No data rows found in the uploaded file.")
 
+    if verify_whatsapp:
+        status_info = await baileys_service.get_status()
+        if not status_info.get("connected"):
+            raise HTTPException(
+                status_code=400,
+                detail="WhatsApp is not connected via QR code in Settings. Please connect WhatsApp in Settings to verify numbers, or uncheck WhatsApp verification."
+            )
+
     imported_count = 0
     skipped_count = 0
+    filtered_non_whatsapp_count = 0
     errors = []
     seen_in_batch = set()
+
+    # Pre-verify numbers against WhatsApp if enabled
+    verified_map = {}
+    if verify_whatsapp:
+        candidate_phones = []
+        for raw_row in raw_rows:
+            f = map_row_to_lead_fields(raw_row)
+            p = f.get("phone_number")
+            if p:
+                c, _ = normalize_phone(p)
+                candidate_phones.append(c or p.strip())
+        if candidate_phones:
+            verified_map = await baileys_service.verify_numbers(candidate_phones)
 
     for idx, raw_row in enumerate(raw_rows, start=1):
         fields = map_row_to_lead_fields(raw_row)
@@ -359,6 +392,14 @@ async def import_leads_file(
         clean_e164, formatted = normalize_phone(phone_raw)
         effective_phone = clean_e164 or phone_raw.strip()
         effective_formatted = formatted or effective_phone
+
+        # Filter out numbers not registered on WhatsApp if verification was requested
+        if verify_whatsapp:
+            if not verified_map.get(effective_phone, False):
+                errors.append(f"Row {idx} ({bname}): Phone ({effective_phone}) is not registered on WhatsApp")
+                skipped_count += 1
+                filtered_non_whatsapp_count += 1
+                continue
 
         # Check duplicate within this upload batch
         if effective_phone in seen_in_batch:
@@ -411,6 +452,7 @@ async def import_leads_file(
         "total_rows": len(raw_rows),
         "imported_count": imported_count,
         "skipped_count": skipped_count,
+        "filtered_non_whatsapp_count": filtered_non_whatsapp_count,
         "errors": errors[:50]
     }
 
@@ -474,3 +516,82 @@ async def delete_lead(
     await db.delete(lead)
     await db.commit()
     return {"success": True, "message": "Lead deleted"}
+
+
+@router.put("/{lead_id}")
+@router.patch("/{lead_id}")
+async def update_lead(
+    lead_id: int,
+    body: LeadUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Updates lead details including business name, contact name, phone, address, rating, website, status, and notes.
+    """
+    result = await db.execute(select(Lead).where(Lead.id == lead_id))
+    lead = result.scalar_one_or_none()
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    if body.business_name is not None and body.business_name.strip():
+        lead.business_name = body.business_name.strip()
+    if body.contact_name is not None:
+        lead.contact_name = body.contact_name.strip() or None
+    if body.phone_number is not None and body.phone_number.strip():
+        clean_e164, formatted = normalize_phone(body.phone_number)
+        lead.phone_number = clean_e164 or body.phone_number.strip()
+        lead.formatted_phone = formatted or lead.phone_number
+    if body.address is not None:
+        lead.address = body.address.strip() or None
+    if body.rating is not None:
+        lead.rating = body.rating
+    if body.website is not None:
+        lead.website = body.website.strip() or None
+    if body.notes is not None:
+        lead.notes = body.notes.strip() or None
+    if body.status is not None:
+        lead.status = body.status
+
+    lead.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(lead)
+
+    return {
+        "id": lead.id,
+        "business_name": lead.business_name,
+        "contact_name": lead.contact_name,
+        "phone_number": lead.phone_number,
+        "formatted_phone": lead.formatted_phone,
+        "phone_type": lead.phone_type,
+        "address": lead.address,
+        "rating": lead.rating,
+        "website": lead.website,
+        "notes": lead.notes,
+        "status": lead.status.value,
+        "updated_at": lead.updated_at.isoformat()
+    }
+
+
+@router.post("/bulk-delete")
+async def bulk_delete_leads(
+    body: BulkDeleteRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Batch deletes multiple leads by their IDs, cleanly cascading to associated messages.
+    """
+    if not body.lead_ids:
+        return {"success": True, "deleted_count": 0}
+
+    stmt = select(Lead).where(Lead.id.in_(body.lead_ids))
+    result = await db.execute(stmt)
+    leads_to_delete = result.scalars().all()
+    count = len(leads_to_delete)
+
+    for l in leads_to_delete:
+        await db.delete(l)
+
+    await db.commit()
+    return {"success": True, "deleted_count": count}

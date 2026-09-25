@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { leadsApi, messagingApi } from '../api/client';
+import { leadsApi, messagingApi, baileysApi } from '../api/client';
 import StatusBadge from '../components/StatusBadge';
 import { 
   Users, 
@@ -8,19 +8,21 @@ import {
   Trash2, 
   MessageSquare, 
   ExternalLink, 
-  RefreshCw,
-  X,
-  Star,
-  Send,
-  CheckCircle2,
-  AlertCircle,
-  Clock,
-  ShieldCheck,
-  Sparkles,
-  Upload,
-  FileSpreadsheet,
-  FileText,
-  Download
+  RefreshCw, 
+  X, 
+  Star, 
+  Send, 
+  CheckCircle2, 
+  AlertCircle, 
+  Clock, 
+  ShieldCheck, 
+  Sparkles, 
+  Upload, 
+  FileSpreadsheet, 
+  FileText, 
+  Download,
+  Pencil,
+  Check
 } from 'lucide-react';
 
 export default function Leads({ setActiveTab, setSelectedLeadId }) {
@@ -36,6 +38,29 @@ export default function Leads({ setActiveTab, setSelectedLeadId }) {
     rating: '',
     notes: '',
   });
+
+  // Edit Lead Modal State
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingLead, setEditingLead] = useState(null);
+  const [editForm, setEditForm] = useState({
+    business_name: '',
+    contact_name: '',
+    phone_number: '',
+    address: '',
+    rating: '',
+    website: '',
+    notes: '',
+    status: 'new',
+  });
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  // Bulk Delete Modal State
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  // Baileys WhatsApp Connection & Import Check State
+  const [baileysConnected, setBaileysConnected] = useState(false);
+  const [verifyOnWhatsapp, setVerifyOnWhatsapp] = useState(true);
 
   // Bulk Selection & Dispatch State
   const [selectedLeadIds, setSelectedLeadIds] = useState(new Set());
@@ -74,6 +99,14 @@ export default function Leads({ setActiveTab, setSelectedLeadId }) {
   useEffect(() => {
     fetchLeads();
   }, [statusFilter]);
+
+  useEffect(() => {
+    baileysApi.getStatus().then((res) => {
+      setBaileysConnected(Boolean(res.data?.connected));
+    }).catch(() => {
+      setBaileysConnected(false);
+    });
+  }, []);
 
   const handleSearchSubmit = (e) => {
     e.preventDefault();
@@ -222,12 +255,69 @@ export default function Leads({ setActiveTab, setSelectedLeadId }) {
     }
   };
 
+  const handleOpenEdit = (lead) => {
+    setEditingLead(lead);
+    setEditForm({
+      business_name: lead.business_name || '',
+      contact_name: lead.contact_name || '',
+      phone_number: lead.phone_number || '',
+      address: lead.address || '',
+      rating: lead.rating !== null && lead.rating !== undefined ? String(lead.rating) : '',
+      website: lead.website || '',
+      notes: lead.notes || '',
+      status: lead.status || 'new',
+    });
+    setShowEditModal(true);
+  };
+
+  const handleSaveEdit = async (e) => {
+    e.preventDefault();
+    if (!editingLead) return;
+    setSavingEdit(true);
+    try {
+      const payload = {
+        business_name: editForm.business_name,
+        contact_name: editForm.contact_name || null,
+        phone_number: editForm.phone_number,
+        address: editForm.address || null,
+        rating: editForm.rating ? parseFloat(editForm.rating) : null,
+        website: editForm.website || null,
+        notes: editForm.notes || null,
+        status: editForm.status,
+      };
+      await leadsApi.update(editingLead.id, payload);
+      setShowEditModal(false);
+      setEditingLead(null);
+      fetchLeads();
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Failed to update lead');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const handleConfirmBulkDelete = async () => {
+    if (selectedLeadIds.size === 0 || bulkDeleting) return;
+    setBulkDeleting(true);
+    try {
+      const res = await leadsApi.bulkDelete(Array.from(selectedLeadIds));
+      clearSelection();
+      setShowBulkDeleteConfirm(false);
+      fetchLeads();
+      alert(`Deleted ${res.data?.deleted_count || selectedLeadIds.size} leads successfully.`);
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Failed to delete selected leads');
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
   const handleUploadFile = async () => {
     if (!selectedFile || importing) return;
     setImporting(true);
     setImportResult(null);
     try {
-      const res = await leadsApi.importFile(selectedFile);
+      const res = await leadsApi.importFile(selectedFile, baileysConnected && verifyOnWhatsapp);
       setImportResult(res.data);
       fetchLeads();
     } catch (err) {
@@ -474,6 +564,13 @@ export default function Leads({ setActiveTab, setSelectedLeadId }) {
                             Chat
                           </button>
                           <button
+                            onClick={() => handleOpenEdit(lead)}
+                            className="p-1 text-zinc-400 hover:text-emerald-400 rounded transition-colors"
+                            title="Edit Lead Details"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
                             onClick={() => handleDeleteLead(lead.id)}
                             className="p-1 text-zinc-500 hover:text-rose-400 rounded transition-colors"
                             title="Delete Lead"
@@ -607,11 +704,210 @@ export default function Leads({ setActiveTab, setSelectedLeadId }) {
           </button>
 
           <button
+            onClick={() => setShowBulkDeleteConfirm(true)}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-medium text-white bg-rose-600 hover:bg-rose-500 transition-colors shadow-md"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            Delete Selected ({selectedLeadIds.size})
+          </button>
+
+          <button
             onClick={clearSelection}
             className="text-zinc-400 hover:text-zinc-200 px-2 py-1 rounded hover:bg-zinc-800 transition-colors"
           >
             Deselect All
           </button>
+        </div>
+      )}
+
+      {/* Bulk Delete Confirmation Modal */}
+      {showBulkDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-zinc-100">Delete Selected Leads</h3>
+                <p className="text-xs text-zinc-400">Permanently remove leads from pipeline</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-zinc-300 leading-relaxed">
+              Are you sure you want to delete <strong className="text-rose-400 font-semibold">{selectedLeadIds.size}</strong> selected leads? This action cannot be undone and will delete all associated conversation history and notes.
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-800">
+              <button
+                type="button"
+                disabled={bulkDeleting}
+                onClick={() => setShowBulkDeleteConfirm(false)}
+                className="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={bulkDeleting}
+                onClick={handleConfirmBulkDelete}
+                className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors"
+              >
+                {bulkDeleting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                {bulkDeleting ? 'Deleting...' : `Yes, Delete ${selectedLeadIds.size} Leads`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Lead Modal */}
+      {showEditModal && editingLead && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-800/80">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                  <Pencil className="w-4 h-4" />
+                </div>
+                <div>
+                  <h2 className="text-base font-semibold text-zinc-100">Edit Lead Details</h2>
+                  <p className="text-xs text-zinc-400 font-mono">{editingLead.business_name}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowEditModal(false);
+                  setEditingLead(null);
+                }}
+                className="text-zinc-500 hover:text-zinc-300 p-1 rounded-md"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEdit} className="space-y-3.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-zinc-400 mb-1">Business Name *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editForm.business_name}
+                    onChange={(e) => setEditForm({ ...editForm, business_name: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-zinc-950 border border-zinc-800 text-xs text-zinc-200 focus:outline-none focus:border-zinc-700"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-zinc-400 mb-1">Contact Name</label>
+                  <input
+                    type="text"
+                    value={editForm.contact_name}
+                    onChange={(e) => setEditForm({ ...editForm, contact_name: e.target.value })}
+                    placeholder="Owner / Manager name"
+                    className="w-full px-3 py-2 rounded-lg bg-zinc-950 border border-zinc-800 text-xs text-zinc-200 focus:outline-none focus:border-zinc-700"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-zinc-400 mb-1">Phone Number *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editForm.phone_number}
+                    onChange={(e) => setEditForm({ ...editForm, phone_number: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-zinc-950 border border-zinc-800 text-xs text-zinc-200 focus:outline-none focus:border-zinc-700 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-zinc-400 mb-1">Google Rating (1.0 - 5.0)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="1"
+                    max="5"
+                    value={editForm.rating}
+                    onChange={(e) => setEditForm({ ...editForm, rating: e.target.value })}
+                    placeholder="4.8"
+                    className="w-full px-3 py-2 rounded-lg bg-zinc-950 border border-zinc-800 text-xs text-zinc-200 focus:outline-none focus:border-zinc-700 font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-zinc-400 mb-1">Address / Location</label>
+                <input
+                  type="text"
+                  value={editForm.address}
+                  onChange={(e) => setEditForm({ ...editForm, address: e.target.value })}
+                  placeholder="Street, City"
+                  className="w-full px-3 py-2 rounded-lg bg-zinc-950 border border-zinc-800 text-xs text-zinc-200 focus:outline-none focus:border-zinc-700"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-zinc-400 mb-1">Website URL</label>
+                  <input
+                    type="text"
+                    value={editForm.website}
+                    onChange={(e) => setEditForm({ ...editForm, website: e.target.value })}
+                    placeholder="https://example.com"
+                    className="w-full px-3 py-2 rounded-lg bg-zinc-950 border border-zinc-800 text-xs text-zinc-200 focus:outline-none focus:border-zinc-700"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-zinc-400 mb-1">Status Stage</label>
+                  <select
+                    value={editForm.status}
+                    onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-zinc-950 border border-zinc-800 text-xs text-zinc-200 focus:outline-none focus:border-zinc-700"
+                  >
+                    <option value="new">New Lead</option>
+                    <option value="outreach_sent">Outreach Sent</option>
+                    <option value="ongoing">Ongoing (Replied)</option>
+                    <option value="finalized">Finalized</option>
+                    <option value="not_interested">Not Interested</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-zinc-400 mb-1">Notes</label>
+                <textarea
+                  rows={2}
+                  value={editForm.notes}
+                  onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+                  placeholder="Any extra info or context"
+                  className="w-full px-3 py-2 rounded-lg bg-zinc-950 border border-zinc-800 text-xs text-zinc-200 focus:outline-none focus:border-zinc-700 resize-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEditModal(false);
+                    setEditingLead(null);
+                  }}
+                  className="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingEdit}
+                  className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                >
+                  {savingEdit ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                  Save Changes
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
@@ -897,6 +1193,33 @@ export default function Leads({ setActiveTab, setSelectedLeadId }) {
               </p>
             </div>
 
+            {/* WhatsApp onWhatsApp Verification Option */}
+            <div className="p-3 rounded-xl bg-zinc-950/70 border border-zinc-800 flex items-center justify-between gap-3">
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-200">
+                  <MessageSquare className="w-3.5 h-3.5 text-emerald-400" />
+                  Filter numbers not on WhatsApp
+                </div>
+                <div className="text-[11px] text-zinc-400">
+                  {baileysConnected ? (
+                    <span className="text-emerald-400 font-medium">✓ WhatsApp Linked — will check onWhatsApp() and filter non-WhatsApp numbers</span>
+                  ) : (
+                    <span className="text-amber-400">WhatsApp not linked in Settings (connect via QR in Settings to enable live filtering)</span>
+                  )}
+                </div>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={verifyOnWhatsapp && baileysConnected}
+                  disabled={!baileysConnected}
+                  onChange={(e) => setVerifyOnWhatsapp(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className={`w-9 h-5 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all ${baileysConnected ? 'peer-checked:bg-emerald-600' : 'opacity-40 cursor-not-allowed'}`}></div>
+              </label>
+            </div>
+
             {/* Upload Box / Drag & Drop */}
             {!importResult && (
               <div
@@ -962,14 +1285,20 @@ export default function Leads({ setActiveTab, setSelectedLeadId }) {
                   <CheckCircle2 className="w-4 h-4" />
                   Import Finished!
                 </div>
-                <div className="grid grid-cols-2 gap-2 font-mono text-xs">
+                <div className={`grid ${importResult.filtered_non_whatsapp_count ? 'grid-cols-3' : 'grid-cols-2'} gap-2 font-mono text-xs`}>
                   <div className="p-2.5 rounded-lg bg-zinc-900 border border-zinc-800/80">
                     <div className="text-[10px] text-zinc-400">Imported into Pipeline</div>
                     <div className="text-lg font-bold text-emerald-400">+{importResult.imported_count}</div>
                   </div>
+                  {Boolean(importResult.filtered_non_whatsapp_count) && (
+                    <div className="p-2.5 rounded-lg bg-zinc-900 border border-amber-500/30">
+                      <div className="text-[10px] text-amber-400">Not on WhatsApp</div>
+                      <div className="text-lg font-bold text-amber-400">{importResult.filtered_non_whatsapp_count}</div>
+                    </div>
+                  )}
                   <div className="p-2.5 rounded-lg bg-zinc-900 border border-zinc-800/80">
-                    <div className="text-[10px] text-zinc-400">Skipped (Duplicates/Invalid)</div>
-                    <div className="text-lg font-bold text-zinc-400">{importResult.skipped_count}</div>
+                    <div className="text-[10px] text-zinc-400">Duplicates / Invalid</div>
+                    <div className="text-lg font-bold text-zinc-400">{importResult.skipped_count - (importResult.filtered_non_whatsapp_count || 0)}</div>
                   </div>
                 </div>
 

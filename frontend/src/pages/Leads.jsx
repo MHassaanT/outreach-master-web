@@ -260,7 +260,7 @@ export default function Leads({ setActiveTab, setSelectedLeadId }) {
     setEditForm({
       business_name: lead.business_name || '',
       contact_name: lead.contact_name || '',
-      phone_number: lead.phone_number || '',
+      phone_number: lead.formatted_phone || lead.phone_number || '',
       address: lead.address || '',
       rating: lead.rating !== null && lead.rating !== undefined ? String(lead.rating) : '',
       website: lead.website || '',
@@ -329,7 +329,7 @@ export default function Leads({ setActiveTab, setSelectedLeadId }) {
 
   const handleDownloadSampleCsv = () => {
     const csvContent = "Name,Phone Number,Location,Rating\n" +
-      "Acme Artisanal Coffee,+44 7712 345678,\"12 Baker Street, London\",4.9\n" +
+      "Acme Artisanal Coffee,07712 345678,\"12 Baker Street, London\",4.9\n" +
       "The Rustic Bistro,+44 7890 123456,\"45 High Street, Manchester\",4.7\n";
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -1189,7 +1189,7 @@ export default function Leads({ setActiveTab, setSelectedLeadId }) {
                 </div>
               </div>
               <p className="text-[11px] text-zinc-400 leading-relaxed">
-                Supports numeric rating (e.g. 4.8 or 5.0) for personalized outreach templates. Phone numbers are automatically verified and converted to international format.
+                Supports numeric rating (e.g. 4.8 or 5.0) for personalized outreach templates. Phone numbers in domestic <span className="font-mono text-zinc-300">07xxx</span> format are automatically converted to <span className="font-mono text-emerald-400">+44 7xxx</span>.
               </p>
             </div>
 

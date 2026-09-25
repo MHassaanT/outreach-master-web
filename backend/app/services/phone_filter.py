@@ -1,3 +1,4 @@
+import re
 from typing import Optional, Dict, Any
 import phonenumbers
 from phonenumbers import PhoneNumberType, PhoneNumberFormat
@@ -92,25 +93,66 @@ def extract_phone_digits(raw_phone: str) -> str:
 def normalize_phone(raw_phone: str, default_region: str = "GB") -> tuple[str, str]:
     """
     Normalizes any input phone number string into:
-    1. clean_e164: Standard E.164 string with '+' and strictly digits only (NO spaces, dashes, or parentheses)
-    2. formatted: Human-readable display format (e.g. international format '+44 7349 625505')
+    1. clean_e164: Standard E.164 string with '+' and strictly digits only (e.g. '+447123456789')
+    2. formatted: Human-readable display format in '+44 7xxx' format (e.g. '+44 7123 456789').
+       Whenever a UK mobile number is in 07xxx format (or missing leading 0 from Excel),
+       it automatically standardizes to '+44 7xxx'.
     """
-    if not raw_phone or not raw_phone.strip():
+    if not raw_phone:
         return "", ""
 
-    cleaned = raw_phone.strip()
+    # Clean quotes, whitespace, and Excel float artifact e.g. ".0"
+    cleaned = str(raw_phone).strip().strip("'\"")
+    if cleaned.endswith(".0"):
+        cleaned = cleaned[:-2]
+
+    # Handle UK domestic trunk notation "+44 (0) 7..." -> "+44 7..."
+    cleaned = re.sub(r"\+44\s*\(\s*0\s*\)", "+44 ", cleaned)
+
     digits = extract_phone_digits(cleaned)
     if not digits:
         return "", ""
 
-    # Try libphonenumber parse first
+    # Specifically detect UK mobile numbers in 07xxx, 7xxx (Excel), 447xxx, 00447xxx formats
+    is_uk_mobile = False
+    uk_national_digits = None
+
+    if digits.startswith("00447") and len(digits) >= 12:
+        is_uk_mobile = True
+        uk_national_digits = digits[4:]  # e.g. 7123456789
+    elif digits.startswith("447") and len(digits) >= 11:
+        is_uk_mobile = True
+        uk_national_digits = digits[2:]  # e.g. 7123456789
+    elif digits.startswith("07") and len(digits) >= 10:
+        is_uk_mobile = True
+        uk_national_digits = digits[1:]  # e.g. 7123456789
+    elif digits.startswith("7") and len(digits) == 10 and default_region == "GB":
+        # Excel often truncates leading 0 from 07xxx
+        is_uk_mobile = True
+        uk_national_digits = digits      # e.g. 7123456789
+
+    if is_uk_mobile and uk_national_digits:
+        clean_e164 = f"+44{uk_national_digits}"
+        # Try standard libphonenumber formatting for clean display
+        try:
+            parsed = phonenumbers.parse(clean_e164, None)
+            intl = phonenumbers.format_number(parsed, PhoneNumberFormat.INTERNATIONAL)
+            return clean_e164, intl
+        except Exception:
+            # Fallback formatting: +44 7xxx xxxxxx
+            if len(uk_national_digits) == 10:
+                intl = f"+44 {uk_national_digits[:4]} {uk_national_digits[4:]}"
+            else:
+                intl = f"+44 {uk_national_digits}"
+            return clean_e164, intl
+
+    # For other numbers, try libphonenumber parse first
     try:
         region = None if cleaned.startswith("+") else default_region
         parsed = phonenumbers.parse(cleaned, region)
         if phonenumbers.is_valid_number(parsed):
             e164 = phonenumbers.format_number(parsed, PhoneNumberFormat.E164)
             intl = phonenumbers.format_number(parsed, PhoneNumberFormat.INTERNATIONAL)
-            # Ensure e164 is strictly digits with leading '+'
             clean_e164 = "+" + extract_phone_digits(e164)
             return clean_e164, intl
     except Exception:
@@ -120,12 +162,10 @@ def normalize_phone(raw_phone: str, default_region: str = "GB") -> tuple[str, st
     if cleaned.startswith("+"):
         return f"+{digits}", cleaned
 
-    # If it starts with 0 and looks like a UK number (11 digits):
     if cleaned.startswith("0") and len(digits) == 11 and default_region == "GB":
         uk_e164 = f"+44{digits[1:]}"
         uk_display = f"+44 {digits[1:5]} {digits[5:]}"
         return uk_e164, uk_display
 
-    # Default fallback: + prefix with all non-digit characters removed
     return f"+{digits}", cleaned
 

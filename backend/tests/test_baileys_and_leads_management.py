@@ -183,3 +183,84 @@ async def test_lead_edit_and_bulk_delete():
         assert lead1_id in remaining_ids
         assert created_ids[1] not in remaining_ids
         assert created_ids[2] not in remaining_ids
+
+
+@pytest.mark.asyncio
+async def test_uk_phone_normalization_07xxx_conversion():
+    from app.services.phone_filter import normalize_phone
+
+    # Direct unit tests for normalize_phone
+    test_cases = [
+        ("07123456789", "+447123456789", "+44 7123 456789"),
+        ("07123 456789", "+447123456789", "+44 7123 456789"),
+        ("7123456789", "+447123456789", "+44 7123 456789"),
+        ("+44 (0) 7123 456789", "+447123456789", "+44 7123 456789"),
+        ("00447123456789", "+447123456789", "+44 7123 456789"),
+        ("+447123456789", "+447123456789", "+44 7123 456789"),
+        ("07123456789.0", "+447123456789", "+44 7123 456789"),
+    ]
+    for raw, expected_e164, expected_formatted in test_cases:
+        e164, formatted = normalize_phone(raw)
+        assert e164 == expected_e164, f"Failed e164 for {raw}: got {e164}"
+        assert formatted == expected_formatted, f"Failed formatted for {raw}: got {formatted}"
+
+    # Test CSV import with 07xxx format
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        reg_res = await client.post(
+            "/api/auth/register",
+            json={"name": "UK Format Tester", "email": f"uk_{uuid.uuid4().hex[:8]}@example.com", "password": "password123"}
+        )
+        token = reg_res.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # Generate two distinct random unique 9 digits for UK mobile leads
+        rand_a = f"91{uuid.uuid4().int % 10000000:07d}"
+        rand_b = f"92{uuid.uuid4().int % 10000000:07d}"
+        raw_bakery = f"07{rand_a}"
+        raw_shop = f"7{rand_b}"
+        raw_update = f"078{rand_a[1:]}"
+
+        csv_content = (
+            "Name,Phone Number,Location,Rating\n"
+            f"Domestic UK Bakery,{raw_bakery},\"10 King St, Manchester\",4.9\n"
+            f"Excel Domestic Shop,{raw_shop},\"12 Queen St, Birmingham\",4.8\n"
+        ).encode("utf-8")
+
+        files = {"file": ("domestic_leads.csv", csv_content, "text/csv")}
+        import_res = await client.post(
+            "/api/leads/import-file?verify_whatsapp=false",
+            files=files,
+            headers=headers
+        )
+        assert import_res.status_code == 200
+        data = import_res.json()
+        assert data["imported_count"] == 2
+
+        # Verify converted format in database
+        leads_res = await client.get("/api/leads", headers=headers)
+        assert leads_res.status_code == 200
+        leads = leads_res.json()
+
+        bakery = next(l for l in leads if l["business_name"] == "Domestic UK Bakery")
+        assert bakery["phone_number"] == f"+447{rand_a}"
+        assert bakery["formatted_phone"].startswith("+44 7")
+
+        shop = next(l for l in leads if l["business_name"] == "Excel Domestic Shop")
+        assert shop["phone_number"] == f"+447{rand_b}"
+        assert shop["formatted_phone"].startswith("+44 7")
+
+        # Update lead with domestic format via PUT endpoint
+        update_res = await client.put(
+            f"/api/leads/{bakery['id']}",
+            json={"phone_number": raw_update},
+            headers=headers
+        )
+        assert update_res.status_code == 200
+        updated = update_res.json()
+        assert updated["phone_number"] == f"+4478{rand_a[1:]}"
+        assert updated["formatted_phone"].startswith("+44 7")
+
